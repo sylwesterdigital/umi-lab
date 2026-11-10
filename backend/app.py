@@ -1,4 +1,4 @@
-"""UMI LAB v0.1.3: authenticated Flask API and single-page studio."""
+"""UMI LAB v0.1.5: authenticated Flask API and single-page studio."""
 import base64
 import csv
 import io
@@ -132,7 +132,7 @@ def index():return send_from_directory(str(ROOT/'frontend'),'index.html')
 def version():return send_from_directory(str(ROOT),'version.json')
 
 @app.get('/api/health')
-def health():return jsonify(ok=True,version='0.1.4',storage='sqlite',project='umi-lab')
+def health():return jsonify(ok=True,version='0.1.5',storage='sqlite',project='umi-lab')
 
 @app.get('/api/session')
 def session_info():
@@ -155,7 +155,7 @@ def setup():
     if len(pwd)<12:return jsonify(error='Use a password of at least 12 characters'),400
     with store.connect(DATA) as conn:
         if conn.execute('SELECT COUNT(*) FROM users').fetchone()[0]:abort(403,'Account already exists')
-        uid=store.create_user(conn,'admin',pwd,str(body.get('name') or 'UMI Creator')[:80])
+        uid=store.create_user(conn,'admin',pwd,str(body.get('name') or 'UMI Creator')[:80],role='admin')
     session.clear();session['uid']=uid;session['csrf']=secrets.token_urlsafe(30);session['sid']=secrets.token_urlsafe(20)
     session.permanent=True
     return jsonify(ok=True,csrf=session['csrf'])

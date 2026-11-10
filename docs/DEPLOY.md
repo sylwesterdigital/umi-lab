@@ -3,7 +3,7 @@
 ## Files and staging
 
 - Install `watcher-umi-lab.sh` at repo root and `chmod +x watcher-umi-lab.sh`.
-- Download `UMI_LAB_UPDATE_v0.1.3.zip` into `updates/`.
+- Download `UMI_LAB_UPDATE_v0.1.5.zip` into `updates/`.
 - The watcher defaults to SSH `root@46.62.232.64:333` using the shared server setting from the supplied Vehicle Lab watcher.
 - Network settings are persisted in `.umi-lab/watcher-config.json` (mode 0600), not shell exports.
 - SSH public-key authentication must already work from macOS, and host key must be pinned in `~/.ssh/known_hosts`.

@@ -1,5 +1,15 @@
 # UMI LAB changelog
 
+## 0.1.5 — Administrator provisioning and secure logs
+
+- Fix initial administrator accounts being created with the default regular-user role.
+- Explicitly assign `admin` only in the locally restricted setup endpoint and Ubuntu provisioning step.
+- Keep server-level application logs admin-only; guests and other registered users remain denied.
+- Add both database and Flask integration regressions for admin and regular-user log permissions.
+- Preserve all existing SQLite records, provider keys, profiles and projects during upgrade.
+- Retain watcher v0.1.2 and persistent SSH configuration (port 333).
+
+
 ## 0.1.4 — 3D-first studio and identity controls
 
 - Replaced the three-column dashboard with a clean full-screen Three.js workspace and a single starting question.

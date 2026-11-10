@@ -93,13 +93,17 @@ def verify_password(password, encoded):
     except (ValueError,TypeError):return False
 
 
-def create_user(db, username, password, display_name, *, email=None, phone=None):
+def create_user(db, username, password, display_name, *, email=None, phone=None, role='user'):
     if len(password) < 12:
         raise ValueError('Password must be at least 12 characters')
+    # Only the one locally provisioned admin identity can receive the admin role.
+    # Normal registrations and guest upgrades remain unprivileged by default.
+    if role not in ('user', 'admin') or (role == 'admin' and username != 'admin'):
+        raise ValueError('Invalid account role')
     uid = new_id()
-    db.execute('''INSERT INTO users(id,username,password_hash,display_name,created_at,email,phone)
-        VALUES(?,?,?,?,?,?,?)''',
-        (uid, username, password_hash(password),display_name,int(time.time()),email,phone))
+    db.execute('''INSERT INTO users(id,username,password_hash,display_name,created_at,email,phone,role)
+        VALUES(?,?,?,?,?,?,?,?)''',
+        (uid, username, password_hash(password),display_name,int(time.time()),email,phone,role))
     db.commit()
     return uid
 

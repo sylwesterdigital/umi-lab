@@ -89,10 +89,18 @@ class GuestAPITests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/profile/avatar').mimetype,'image/jpeg')
         self.assertEqual(self.client.get('/api/session').json['user']['avatar_url'],'/api/profile/avatar')
     def test_admin_only_server_log(self):
-        self.client.post('/api/setup',json={'name':'Admin','password':'a-secure-passphrase'})
+        setup=self.client.post('/api/setup',json={'name':'Admin','password':'a-secure-passphrase'})
+        self.assertEqual(setup.status_code,200,setup.json)
+        self.assertEqual(self.client.get('/api/session').json['user']['role'],'admin')
         self.assertEqual(self.client.get('/api/logs?scope=server').status_code,200)
         entries=self.client.get('/api/logs?scope=server').json['entries']
         self.assertTrue(entries)
         self.assertNotIn('a-secure-passphrase',str(entries))
+
+    def test_registered_user_has_no_server_log_access(self):
+        created=self.req('register',{'username':'ordinary','password':'a-strong-password','name':'Regular User'})
+        self.assertEqual(created.status_code,200,created.json)
+        self.assertEqual(self.client.get('/api/session').json['user']['role'],'user')
+        self.assertEqual(self.client.get('/api/logs?scope=server').status_code,403)
 
 if __name__=='__main__':unittest.main()

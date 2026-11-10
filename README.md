@@ -1,6 +1,6 @@
 # UMI LAB — Universal Modelling Intelligence
 
-Version 0.1.4 is the 3D-first studio foundation. It deliberately opens with no dashboard, sidebar or signup wall: a full-screen Three.js scene, the gradient-text UMI LAB wordmark, and a single vehicle design prompt. All additional controls have a real implementation.
+Version 0.1.5 is the 3D-first studio foundation. It deliberately opens with no dashboard, sidebar or signup wall: a full-screen Three.js scene, the gradient-text UMI LAB wordmark, and a single vehicle design prompt. All additional controls have a real implementation.
 
 ## Controls
 
@@ -27,6 +27,6 @@ Version 0.1.4 is the 3D-first studio foundation. It deliberately opens with no d
 
 ## Deployment
 
-Place `UMI_LAB_UPDATE_v0.1.4.zip` inside the `updates/` folder. Watcher v0.1.2 can validate/deploy it directly; persistent SSH config already defaults to port 333. Do not put secrets or API keys in ZIP releases. Run `./watcher-umi-lab.sh --dry-run` then `./watcher-umi-lab.sh --once` to deploy once, or run without flags to watch continuously.
+Place `UMI_LAB_UPDATE_v0.1.5.zip` inside the `updates/` folder. Watcher v0.1.2 can validate/deploy it directly; persistent SSH config already defaults to port 333. Do not put secrets or API keys in ZIP releases. Run `./watcher-umi-lab.sh --dry-run` then `./watcher-umi-lab.sh --once` to deploy once, or run without flags to watch continuously.
 
 The release migration is forward-only and retains existing users, projects and assets. The deployer installs dependencies and runs Flask integration tests on Ubuntu before enabling the release. HTTPS, nginx and Gunicorn remain confined to the UMI vhost/service.

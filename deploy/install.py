@@ -262,7 +262,7 @@ with db.connect(path) as con:
     if count==0:
         password=os.environ.get('UMI_ADMIN_PASSWORD','')
         if len(password)<12:raise SystemExit('Set UMI_ADMIN_PASSWORD (12+ chars) for first deployment')
-        db.create_user(con,'admin',password,'UMI Creator')
+        db.create_user(con,'admin',password,'UMI Creator',role='admin')
     else:
         print('Existing UMI accounts preserved')
 '''
