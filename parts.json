@@ -1,0 +1,21 @@
+{
+ "schema":"umi.parts/1.0","vehicle_type":"car","units":"mm","coordinate_system":"right-handed, +X forward, +Y left, +Z up",
+ "assemblies":[
+  {"id":"body","name":"Body","parts":["Shell","Frame","Chassis","Subframe","Hood","Roof","Trunk","Hatch","Fender","Bumper","Grille","Skirt","Spoiler","Diffuser","Bonnet","Splitter","Flare","Vent","Intake","Air Dam","Badge","Plate","Tow Hook","Roof Rail","Mudguard","Trim"]},
+  {"id":"doors","name":"Doors","parts":["Door FL","Door FR","Door RL","Door RR","Hinge","Handle","Latch","Lock","Seal","Panel","Window","Regulator","Motor","Switch","Weatherstrip","Pillar","Step"]},
+  {"id":"glass","name":"Glass","parts":["Windscreen","Rear Glass","Side Glass","Quarter Glass","Sunroof","Mirror","Mirror Cap","Wiper","Wiper Arm","Washer","Reservoir"]},
+  {"id":"lights","name":"Lights","parts":["Headlamp","Taillamp","DRL","Foglamp","Signal","Brake Light","Light Bar","Reflector","Lamp Housing","Lens"]},
+  {"id":"cockpit","name":"Cockpit","parts":["Dash","Cluster","HUD","Screen","Console","Vents","Controls","Shifter","Glovebox","Cupholder","Touchpad","Stalk","Pedal","Footrest","Horn","Start Button"]},
+  {"id":"steering","name":"Steering","parts":["Wheel","Column","Rack","Tie Rod","Knuckle","Link","Steer Motor","Joint","Bearing"]},
+  {"id":"seats","name":"Seats","parts":["Seat FL","Seat FR","Seat RL","Seat RR","Cushion","Backrest","Headrest","Rail","Armrest","Belt","Buckle","Airbag","Bolster","Recline Motor"]},
+  {"id":"wheels","name":"Wheels","parts":["Tyre FL","Tyre FR","Tyre RL","Tyre RR","Rim FL","Rim FR","Rim RL","Rim RR","Spoke","Hub","Cap","Lug","Bearing","Valve","TPMS"]},
+  {"id":"brakes","name":"Brakes","parts":["Disc","Caliper","Pad","ABS","Line","Booster","Master","Parking Brake"]},
+  {"id":"suspension","name":"Suspension","parts":["Arm","Spring","Damper","Strut","Bush","Stabilizer","Mount","Control Link","Ball Joint","Air Spring"]},
+  {"id":"powertrain","name":"Powertrain","parts":["Motor","Engine","Gearbox","Clutch","Shaft","Axle","Diff","Inverter","E-Axle","CV Joint","Piston","Crank","Intake Manifold","Exhaust Manifold"]},
+  {"id":"energy","name":"Energy","parts":["Battery","Tank","Charger","Charge Port","Cell","BMS","Radiator","Pump","Fan","Coolant Line","Fuel Line","Heat Pump","DC-DC","Fuse"]},
+  {"id":"cabin","name":"Cabin","parts":["Trim","Carpet","Liner","Speaker","Camera","Sensor","Light","Visor","Roof Liner","Handle","Mat","HVAC","Blower","Filter","Mic","USB Port","Rear Screen","Door Card","Ambient Strip"]},
+  {"id":"underbody","name":"Underbody","parts":["Floor","Tunnel","Shield","Exhaust","Duct","Skidplate","Subframe","Crossmember","Undertray","Heat Shield"]},
+  {"id":"hardware","name":"Hardware","parts":["Bracket","Clip","Bolt","Nut","Pin","Joint","Socket","Spacer","Gasket","Washer","Screw","Insert","Tab","Dowel","Fastener","Magnet"]},
+  {"id":"software","name":"Electronics","parts":["ECU","Harness","Connector","Fuse Box","Antenna","GPS","LiDAR","Radar","IMU","Camera","Controller","CAN Bus","Telematics"]}
+ ]
+}

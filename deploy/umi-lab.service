@@ -1,0 +1,20 @@
+# Generated and installed dynamically by deploy/install.py.
+# Actual bind port is selected after checking port availability on Ubuntu.
+[Unit]
+Description=UMI LAB Flask API
+After=network-online.target
+
+[Service]
+User=umi-lab
+Group=umi-lab
+WorkingDirectory=/opt/umi-lab/current
+Environment=UMI_DATA_DIR=/var/lib/umi-lab
+Environment=UMI_HTTPS=1
+ExecStart=/opt/umi-lab/current/.venv/bin/gunicorn --workers 1 --threads 4 --timeout 220 --bind 127.0.0.1:5057 backend.wsgi:app
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/umi-lab
+
+[Install]
+WantedBy=multi-user.target
