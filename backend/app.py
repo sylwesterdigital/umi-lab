@@ -462,19 +462,71 @@ def converse():
                 history=[{'role':x['role'],'content':x['content']} for x in conn.execute('''
                     SELECT role,content FROM (SELECT rowid,role,content FROM messages WHERE project_id=?
                     ORDER BY rowid DESC LIMIT 16) ORDER BY rowid ASC''',(pid,))]
-                answer=provider_chat(preset,config,key,history)
+                started=time.monotonic()
+                inference_event(conn,'chat',selected,config.get('model') or preset.get('model',''),'started',102)
+                try:
+                    answer=provider_chat(preset,config,key,history)
+                except ProviderError:
+                    inference_event(conn,'chat',selected,config.get('model') or preset.get('model',''),'failed',502,round((time.monotonic()-started)*1000))
+                    raise
+                inference_event(conn,'chat',selected,config.get('model') or preset.get('model',''),'completed',200,round((time.monotonic()-started)*1000))
                 mode='model'
             except ProviderError as exc:return jsonify(error=str(exc)),400
         else:
-            answer=("Concept brief saved. The parts library and 3D preview are available now. "
-                    "For real AI design discussion, enable a chat provider in Model Settings. "
-                    "Images do not establish hidden CAD geometry or print tolerances.")
+            if not conn.execute('SELECT 1 FROM assets WHERE project_id=? LIMIT 1',(pid,)).fetchone():
+                answer='Brief saved. No images yet. What body shape, terrain and materials should define this vehicle?'
+            else:
+                answer='Brief updated. Would you like to refine the selected images or create a six-view sheet?'
+
             mode='offline'
         store.record_message(conn,pid,'assistant',answer,selected or 'offline')
         if not row['prompt']:
             conn.execute('UPDATE projects SET prompt=?,name=?,updated_at=? WHERE id=?',
                         (message,message[:42],int(time.time()),pid));conn.commit()
     return jsonify(reply=answer,mode=mode,provider=selected or 'offline')
+
+
+
+@app.post('/api/projects/<pid>/continue')
+@authenticated
+def continue_unfinished(pid):
+    # Resume only once on an unfinished project, with user-configured chat provider.
+    body=request.get_json(silent=True) or {}
+    chosen=str(body.get('provider_id') or '')
+    with store.connect(DATA) as conn:
+        row=store.project_for(conn,session['uid'],pid)
+        if not row:abort(404)
+        settings=json.loads(row['settings'])
+        if settings.get('resume_asked'):
+            return jsonify(skipped=True,reason='Already continued')
+        has_images=conn.execute('SELECT 1 FROM assets WHERE project_id=? LIMIT 1',(pid,)).fetchone()
+        has_chat=conn.execute('SELECT 1 FROM messages WHERE project_id=? LIMIT 1',(pid,)).fetchone()
+        if has_images or not has_chat:return jsonify(skipped=True,reason='No unfinished conversation')
+        if not chosen:return jsonify(error='Select a conversational model first'),400
+        try:preset,config,key=get_provider(conn,chosen,body.get('temp_provider'))
+        except ProviderError as exc:return jsonify(error=str(exc)),400
+        history=[{'role':x['role'],'content':x['content']} for x in conn.execute('''
+            SELECT role,content FROM (SELECT rowid,role,content FROM messages WHERE project_id=?
+            ORDER BY rowid DESC LIMIT 12) ORDER BY rowid ASC''',(pid,))]
+        history.append({'role':'user','content':
+            'We are resuming this unfinished vehicle design. No concept image has been created yet. '
+            'Ask ONE short, specific question that helps decide the design before generating reference images. '
+            'Do not repeat the entire specification and do not claim an image was generated.'})
+        started=time.monotonic()
+        inference_event(conn,'chat',chosen,config.get('model') or preset.get('model',''),'resume-start',102)
+        try:
+            answer=provider_chat(preset,config,key,history)
+        except ProviderError as exc:
+            inference_event(conn,'chat',chosen,config.get('model') or preset.get('model',''),'resume-failed',502,round((time.monotonic()-started)*1000))
+            return jsonify(error=str(exc)),502
+        if not answer:return jsonify(error='Provider returned an empty follow-up'),502
+        store.record_message(conn,pid,'assistant',answer[:2000],chosen)
+        settings['resume_asked']=True
+        conn.execute('UPDATE projects SET settings=?,updated_at=? WHERE id=?',
+                     (json.dumps(settings),int(time.time()),pid));conn.commit()
+        elapsed=round((time.monotonic()-started)*1000)
+        inference_event(conn,'chat',chosen,config.get('model') or preset.get('model',''),'resume-complete',200,elapsed)
+    return jsonify(reply=answer,provider=chosen,elapsed_ms=elapsed)
 
 
 def save_asset(conn,pid,image_bytes,mime,view,source):
@@ -525,40 +577,101 @@ def media(asset_id):
     if not row:abort(404)
     return send_from_directory(str(MEDIA),row['filename'],mimetype=row['mime'],max_age=0)
 
-VIEWS=[('front_3q','Front 3/4'),('rear_3q','Rear 3/4'),('side','Side profile'),('cockpit','Cockpit')]
+VIEWS={
+    'front':'front elevation, straight-on orthographic view',
+    'rear':'rear elevation, straight-on orthographic view',
+    'side':'left side elevation, true orthographic side view',
+    'top':'top-down roof plan view, straight overhead orthographic',
+    'front_3q':'front three-quarter perspective from driver side',
+    'rear_3q':'rear three-quarter perspective from driver side',
+    'cockpit':'front cockpit interior from passenger seat showing dashboard, steering and seats',
+}
+SHEET_ORDER=('front','rear','side','top','front_3q','rear_3q')
+
+def inference_event(conn,category,provider,model,phase,status,elapsed_ms=0,reference_count=0):
+    # Audit progress and timing; deliberately exclude image bytes, prompt, credentials and responses.
+    provider=re.sub('[^a-zA-Z0-9_.-]','',provider)[:45]
+    model=re.sub('[^a-zA-Z0-9_.-]','',model)[:90]
+    action=f'AI {category} / {provider} / {model} / {phase} / {elapsed_ms}ms / refs={reference_count}'
+    event={'ts':datetime.now(timezone.utc).isoformat(timespec='seconds'),
+           'level':'ERROR' if status>=400 else 'INFO','action':action,
+           'status':status,'actor':str(session.get('uid',''))[:8]}
+    app.logger.info(json.dumps(event,separators=(',',':')))
+    conn.execute('INSERT INTO events(user_id,session_id,created_at,level,action,status) VALUES(?,?,?,?,?,?)',
+      (session['uid'],session.get('sid',''),int(time.time()),event['level'],action,status))
+    conn.commit()
+
+
+def concept_instruction(brief,mode,style,reference_count):
+    identity=('CRITICAL: use the supplied reference images as the SAME physical vehicle, preserving body shape, wheelbase, color, materials, features, and graphic style. '
+              if reference_count else 'Design one internally consistent vehicle with a stable design identity. ')
+    if mode=='sheet':
+        composition=('Generate ONE LANDSCAPE TECHNICAL BLUEPRINT CONTACT SHEET with EXACTLY SIX equal, clean panels in a 3-column by 2-row grid, '
+          'showing the identical vehicle. Panels in reading order: (1) FRONT straight orthographic, (2) REAR straight orthographic, '
+          '(3) LEFT SIDE orthographic, (4) TOP overhead orthographic, (5) FRONT THREE-QUARTER, (6) REAR THREE-QUARTER. '
+          'Align vehicle proportions, silhouette, wheelbase, number of doors, colors and component placement across ALL panels. '
+          'Use clean linework, coherent materials, simple neutral background; only small panel names, no watermarks. '
+          'Never substitute another vehicle, never produce multiple variants.')
+    else:
+        composition=('ONE IMAGE ONLY: '+VIEWS[mode]+'. Accurate vehicle proportions, consistent with all supplied references, '
+          'full vehicle in frame, no artistic reinterpretation. Plain unobtrusive background. No watermarks or unrelated vehicles.')
+    return f'UMI LAB consistent vehicle reference generation. {identity} Vehicle brief: {brief}. {composition} {style}'.strip()
 
 @app.post('/api/concepts/generate')
 @authenticated
 def concepts():
     body=request.get_json(silent=True) or {}
     pid=str(body.get('project_id',''));provider_id=str(body.get('provider_id',''))
+    mode=str(body.get('mode') or ('front_3q' if body.get('view_count')==1 else 'sheet'))
+    if mode!='sheet' and mode not in VIEWS:return jsonify(error='Unknown view type'),400
     with store.connect(DATA) as conn:
         row=store.project_for(conn,session['uid'],pid)
         if not row:abort(404)
         try:preset,config,key=get_provider(conn,provider_id,body.get('temp_provider'))
         except ProviderError as exc:return jsonify(error=str(exc)),400
-        if not preset.get('images'):return jsonify(error='Select OpenAI, xAI or Gemini for image generation'),400
-        brief=str(body.get('prompt') or row['prompt'] or 'Futuristic performance car')[:3000]
-        made=[];errors=[]
-        for view,label in VIEWS[:1 if body.get('view_count')==1 else 4]:
-            if view=='cockpit':
-                angle='Driver cockpit interior view from passenger seat, detailed dashboard, steering wheel, front seats and center console'
-            else:angle=label+' exterior camera view'
-            instruction=(f'Premium vehicle industrial design concept art. SINGLE vehicle identity: {brief}. '
-                         f'View: {angle}. Studio photo lighting, neutral dark gray seamless studio, '
-                         'visible correct components, crisp silhouette, realistic materials, no text, '
-                         'no labels, no typography, no watermarks. 3:2 landscape composition.')
-            try:
-                content,mime=generate_image(preset,config,key,instruction)
-                aid,err=save_asset(conn,pid,content,mime,view,'ai:'+provider_id)
-                if err:raise ProviderError(err)
-                made.append({'id':aid,'url':'/api/media/'+aid,'view':view,'source':'ai:'+provider_id})
-            except (ProviderError,ValueError,KeyError) as exc:
-                errors.append(f'{label}: {exc}')
-                # Avoid paying for further failed requests if the first request fails.
-                if not made:break
-    if not made:return jsonify(error='; '.join(errors) or 'No images returned'),502
-    return jsonify(assets=made,warnings=errors,views_requested=1 if body.get('view_count')==1 else 4,views_completed=len(made))
+        if not preset.get('images'):return jsonify(error='Choose an image generation provider'),400
+        brief=str(body.get('prompt') or row['prompt'] or 'Vehicle design')[:3000]
+        style=str(body.get('instructions') or '').strip()[:700]
+        ids=body.get('reference_ids')
+        if ids is None:ids=[row['selected_asset']] if row['selected_asset'] else []
+        if not isinstance(ids,list) or len(ids)>5 or any(not isinstance(v,str) for v in ids):
+            return jsonify(error='Choose up to five image references'),400
+        if len(set(ids))!=len(ids):return jsonify(error='Duplicate image reference'),400
+        references=[]
+        for aid in ids:
+            asset=conn.execute('SELECT filename,mime FROM assets WHERE id=? AND project_id=?',(aid,pid)).fetchone()
+            if not asset:return jsonify(error='Unknown reference image'),400
+            image=(MEDIA/asset['filename']).read_bytes()
+            references.append((image,asset['mime']))
+        if sum(len(image) for image,_ in references)>12_000_000:
+            return jsonify(error='Selected references are too large'),400
+        instruction=concept_instruction(brief,mode,style,len(references))
+        model=config.get('image_model') or preset.get('image_model') or ''
+        started=time.monotonic()
+        inference_event(conn,'image',provider_id,model,'started',102,0,len(references))
+        try:
+            content,mime=generate_image(preset,config,key,instruction,reference_images=references)
+            aid,err=save_asset(conn,pid,content,mime, 'six_view_sheet' if mode=='sheet' else mode,'ai:'+provider_id)
+            if err:raise ProviderError(err)
+            # Maintain active source: generating a derivative must not silently change the reference.
+            if row['selected_asset']:
+                conn.execute('UPDATE projects SET selected_asset=? WHERE id=?',(row['selected_asset'],pid))
+                conn.commit()
+            elapsed_ms=round((time.monotonic()-started)*1000)
+            settings=json.loads(row['settings'])
+            settings['last_generation']={'mode':mode,'model':model[:100],'provider':provider_id,
+                'reference_count':len(references),'reference_ids':ids,'images_created':1,
+                'views_in_sheet':6 if mode=='sheet' else 1,'duration_ms':elapsed_ms,'created_at':int(time.time())}
+            conn.execute('UPDATE projects SET settings=? WHERE id=?',(json.dumps(settings),pid))
+            conn.commit()
+            inference_event(conn,'image',provider_id,model,'completed',200,elapsed_ms,len(references))
+        except (ProviderError,ValueError,KeyError,OSError) as exc:
+            elapsed_ms=round((time.monotonic()-started)*1000)
+            inference_event(conn,'image',provider_id,model,'failed',502,elapsed_ms,len(references))
+            return jsonify(error=str(exc)),502
+    return jsonify(assets=[{'id':aid,'url':'/api/media/'+aid,'view': 'six_view_sheet' if mode=='sheet' else mode}],
+                   warnings=[],views_requested=6 if mode=='sheet' else 1,views_completed=6 if mode=='sheet' else 1,
+                   images_created=1,mode=mode,reference_count=len(references),model=model,elapsed_ms=elapsed_ms)
 
 
 def make_manifest(row):

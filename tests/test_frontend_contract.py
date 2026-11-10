@@ -35,7 +35,12 @@ class FrontendContractTests(unittest.TestCase):
         self.assertNotIn('id="providerList"',page)
         self.assertIn("form.className='provider-fields-compact'",js)
         self.assertIn('temp_provider:tempConfig',js)
-        self.assertIn('view_count:automatic?1:4',js)
+        self.assertIn('reference_ids:refs',js)
+        self.assertIn("mode=automatic?'front_3q':",js)
+        self.assertIn('enableGalleryDrag',js)
+        self.assertIn('openPreview',js)
+        self.assertIn('addResumeHint',js)
+        self.assertIn('/continue',js)
 
     def test_real_physics_and_logs_controls(self):
         page=(BASE/'frontend/index.html').read_text()

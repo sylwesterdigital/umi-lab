@@ -1,3 +1,10 @@
+## v0.1.8 — Workspace continuity & image workflows
+- Resume last project and draft; ask one contextual LLM follow-up for unfinished, imageless projects (when configured), and enable selectable/copyable chat bubbles.
+- Floating, movable, resizable concepts window with image multi-select and full-screen preview.
+- Six-view technical sheets or individual camera views with attached reference images.
+- Live inference activity in the UI and per-provider model/timing events in session and admin logs.
+- Preserve previously selected reference after generation.
+
 # v0.1.7 — 2026-11-10
 - Fix Flask health endpoint reporting the previous release version, preventing service activation.
 - Use version.json as the sole source for API health and concept-export versions.

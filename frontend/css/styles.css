@@ -40,3 +40,50 @@ button,input,textarea,select{font:inherit}button{cursor:pointer;background:none;
 .prompt-actions #imageProviderSelect{max-width:160px}
 .bubble img{display:block;max-width:100%;height:auto;border-radius:9px;margin-top:8px}
 @media(max-width:640px){.model-chooser{flex-wrap:wrap}.model-chooser select:first-of-type,.model-chooser select:last-of-type{width:100%}.auto-image-label{font-size:.72em}.prompt-actions #imageProviderSelect{max-width:120px}}
+
+/* Session-first studio: selectable conversation, concise inference activity. */
+.conversation #chatFeed{pointer-events:auto;user-select:text;-webkit-user-select:text}
+.bubble{pointer-events:auto;user-select:text;-webkit-user-select:text;padding:10px 12px;width:fit-content;min-width:100px}
+.bubble-text{white-space:pre-wrap;word-break:break-word;user-select:text;-webkit-user-select:text;max-height:225px;overflow:hidden}
+.bubble.expanded .bubble-text{max-height:none}
+.bubble-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:5px;user-select:none}
+.bubble-actions button{font-size:.73em;color:var(--muted);border:1px solid var(--border);border-radius:7px;padding:3px 8px;pointer-events:auto}
+.bubble-actions button:hover{color:var(--text);border-color:var(--accent)}
+.ai-activity{position:absolute;z-index:8;left:50%;bottom:calc(clamp(22px,5vh,56px) + 110px);transform:translateX(-50%);max-width:calc(100vw - 24px);display:flex;align-items:center;gap:9px;border-radius:25px;border:1px solid var(--border);background:var(--pane);padding:8px 13px;backdrop-filter:blur(24px);box-shadow:0 7px 24px #0004;font-size:.82em;white-space:nowrap}
+.ai-activity #aiActivityText{overflow:hidden;text-overflow:ellipsis}
+.activity-dot{height:9px;width:9px;flex:none;border-radius:50%;background:linear-gradient(120deg,#55e4c9,#8da7ff,#c784f1);animation:activityPulse 1.5s ease-in-out infinite}
+.activity-timer{color:var(--muted);font-variant-numeric:tabular-nums}
+@keyframes activityPulse{50%{opacity:.32;transform:scale(.72)}}
+/* Floating, resizable image workspace. Drag via heading, not over controls. */
+.gallery-tray{position:fixed;transform:none;top:clamp(75px,24vh,200px);left:max(10px,calc(50vw - 480px));bottom:auto;width:min(960px,calc(100vw - 20px));height:min(55vh,520px);max-height:calc(100dvh - 100px);min-height:54px;min-width:300px;z-index:12;display:flex;gap:0;resize:none;overflow:hidden}
+.tray-head{cursor:move;touch-action:none;user-select:none;padding:2px 2px 11px;gap:8px}
+.tray-head strong{white-space:nowrap}
+.tray-count{font-size:.77em;color:var(--muted);margin-right:auto;white-space:nowrap}
+.head-actions{align-items:center}
+.head-actions button{white-space:nowrap}
+.gallery-body{display:flex;flex:1;min-height:0;flex-direction:column;gap:10px}
+.gallery-tray.collapsed{height:auto!important;min-height:0!important}
+.gallery-tray.collapsed .gallery-body,.gallery-tray.collapsed #galleryResize{display:none}
+.gallery-workflow{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.gallery-workflow select,.gallery-workflow input,.gallery-workflow button{font-size:.86em;padding:7px 9px;border:1px solid var(--border);border-radius:9px;min-width:0}
+.gallery-workflow input{flex:1 1 170px;max-width:none}
+.gallery-workflow #galleryImageModel{max-width:210px;flex:1 1 140px}
+.gallery-workflow #galleryAction{flex:0 1 145px}
+.gallery-workflow #generateButton{background:var(--accent);color:#111622;font-weight:700}
+.gallery-grid{flex:1;min-height:0;grid-template-columns:repeat(auto-fill,minmax(135px,1fr));grid-auto-rows:min-content;gap:9px}
+.gallery-card{aspect-ratio:4/3;cursor:zoom-in}
+.gallery-card img{object-fit:cover}
+.gallery-card.reference-selected{outline:2px solid var(--accent)}
+.gallery-card .gallery-pick{position:absolute;right:7px;top:7px;width:26px;height:26px;border-radius:8px;background:rgba(12,15,22,.83);border:1px solid #9ba9c7;color:white;display:grid;place-items:center;z-index:2;font-weight:700;font-size:.94em;cursor:pointer}
+.gallery-card .gallery-pick[aria-pressed=true]{background:var(--accent);color:#10151f}
+.gallery-footnote{font-size:.76em;color:var(--muted);line-height:1.3;flex:none}
+.image-preview{position:fixed;z-index:40;inset:0;background:rgba(5,7,12,.94);display:flex;align-items:center;justify-content:center;flex-direction:column;padding:68px 14px 15px;gap:7px}
+.image-preview img{max-width:100%;max-height:100%;min-height:0;object-fit:contain;flex:1}
+.preview-tools{position:absolute;top:0;left:0;right:0;padding:10px 16px;background:#1118;display:flex;align-items:center;justify-content:space-between;gap:8px;color:#fafafa}
+.preview-tools div{display:flex;gap:7px}.preview-tools button{border:1px solid #777a;border-radius:8px;padding:6px 10px;background:#191e29;white-space:nowrap}
+@media(max-width:700px){.gallery-tray{left:8px;top:17vh;width:calc(100vw - 16px);max-height:70dvh}.tray-head{flex-wrap:wrap}.gallery-footnote{display:none}.gallery-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ai-activity{bottom:133px}.preview-tools{font-size:.8em}.preview-tools button{padding:5px 7px}}
+@media(prefers-reduced-motion:reduce){.activity-dot{animation:none}}
+.gallery-open{display:block;height:100%;width:100%;padding:0;border:0;border-radius:0;overflow:hidden;cursor:zoom-in}
+.gallery-open img{display:block;height:100%;width:100%;object-fit:cover}
+
+.gallery-last-run{font-size:.75em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted);flex:none}

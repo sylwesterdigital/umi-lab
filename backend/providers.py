@@ -107,15 +107,18 @@ def chat(preset, config, key, messages):
     except (KeyError,IndexError,TypeError) as exc:raise ProviderError('Empty chat completion') from exc
 
 
-def generate_image(preset, config, key, prompt):
+def generate_image(preset, config, key, prompt, reference_images=None):
     if not preset.get('images'):raise ProviderError('This provider does not support native image generation in v0.1')
     model=config['image_model'] or preset['image_model']
     if not model:raise ProviderError('Choose an image model in Settings')
     base=safe_base_url(config['base_url'] or preset['base_url'])
     if not key:raise ProviderError('Set an API key before generating images')
+    references=reference_images or []
+    if len(references)>5:raise ProviderError('Select at most five image references')
     if preset['protocol']=='gemini':
+        parts=[{'text':prompt}]+[{'inlineData':{'mimeType':mime,'data':base64.b64encode(blob).decode('ascii')}} for blob,mime in references]
         data=_post(base+'/models/'+model+':generateContent',{'x-goog-api-key':key},
-             {'contents':[{'parts':[{'text':prompt}]}],'generationConfig':{'responseModalities':['TEXT','IMAGE']}},timeout=150)
+             {'contents':[{'parts':parts}],'generationConfig':{'responseModalities':['TEXT','IMAGE']}},timeout=150)
         for candidate in data.get('candidates',[]):
             for part in candidate.get('content',{}).get('parts',[]):
                 blob=part.get('inlineData') or part.get('inline_data')
@@ -123,8 +126,22 @@ def generate_image(preset, config, key, prompt):
                     return base64.b64decode(blob['data'],validate=True),blob.get('mimeType','image/png')
         raise ProviderError('Gemini did not return image data')
     payload={'model':model,'prompt':prompt,'n':1}
+    endpoint=base+'/images/generations'
     if preset['id']=='xai':payload.update({'response_format':'b64_json','aspect_ratio':'3:2'})
-    data=_post(base+'/images/generations',{'Authorization':'Bearer '+key,'Content-Type':'application/json'},payload,timeout=150)
+    if references:
+        # Use actual image-edit endpoints; never silently discard selected references.
+        endpoint=base+'/images/edits'
+        refs=[f'data:{mime};base64,{base64.b64encode(blob).decode("ascii")}' for blob,mime in references]
+        if preset['id']=='xai':
+            payload={'model':model,'prompt':prompt,'response_format':'b64_json','aspect_ratio':'3:2'}
+            if len(refs)==1:payload['image']={'url':refs[0],'type':'image_url'}
+            else:payload['images']=[{'url':uri,'type':'image_url'} for uri in refs]
+        elif preset['id']=='openai':
+            payload={'model':model,'prompt':prompt,'images':[{'image_url':uri} for uri in refs],'n':1}
+            if model.startswith('gpt-image-1.5'):payload['input_fidelity']='high'
+        else:
+            raise ProviderError('Selected provider does not support image-reference editing')
+    data=_post(endpoint,{'Authorization':'Bearer '+key,'Content-Type':'application/json'},payload,timeout=180)
     try:
         item=data['data'][0]
         if item.get('b64_json'):

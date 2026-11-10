@@ -86,6 +86,54 @@ class FlaskTest(unittest.TestCase):
             item=next(p for p in result['providers'] if p['id']=='tripo')
             self.assertFalse(item['has_key'])
 
+    def test_resume_ai_asks_once_on_unfinished_project(self):
+        from unittest.mock import patch
+        pid=self.post('/api/projects',{'name':'Unfinished terrain car'}).json['id']
+        logged=self.post('/api/chat',{'project_id':pid,'message':'Need a rocky road vehicle'})
+        self.assertEqual(logged.status_code,200,logged.json)
+        configured=self.client.put('/api/providers/xai',json={'enabled':True,'api_key':'test-key',
+            'model':'grok-4.7','image_model':'grok-imagine-image-2.0','base_url':'https://api.x.ai/v1'},headers={'X-CSRF-Token':self.csrf})
+        self.assertEqual(configured.status_code,200,configured.json)
+        with patch.object(self.module,'provider_chat',return_value='How much ground clearance should it have?') as infer:
+            answer=self.post('/api/projects/'+pid+'/continue',{'provider_id':'xai'})
+            repeated=self.post('/api/projects/'+pid+'/continue',{'provider_id':'xai'})
+        self.assertEqual(answer.status_code,200,answer.json)
+        self.assertIn('ground clearance',answer.json['reply'])
+        self.assertTrue(repeated.json.get('skipped'))
+        self.assertEqual(infer.call_count,1)
+        data=self.client.get('/api/projects/'+pid).json
+        self.assertTrue(data['project']['settings']['resume_asked'])
+        self.assertEqual(data['messages'][-1]['role'],'assistant')
+
+    def test_six_view_sheet_uses_actual_selected_images(self):
+        from unittest.mock import patch
+        pid=self.post('/api/projects',{'name':'Terrain beast','prompt':'Rock crawler'}).json['id']
+        image=Image.new('RGB',(128,92),'black');buf=io.BytesIO();image.save(buf,'PNG');buf.seek(0)
+        uploaded=self.client.post('/api/assets/upload',data={'project_id':pid,'image':(buf,'reference.png')},
+            headers={'X-CSRF-Token':self.csrf},content_type='multipart/form-data')
+        self.assertEqual(uploaded.status_code,201,uploaded.json)
+        aid=uploaded.json['id']
+        configured=self.client.put('/api/providers/xai',json={'enabled':True,'api_key':'test-key','model':'grok-4.7','image_model':'grok-imagine-image-2.0','base_url':'https://api.x.ai/v1'},headers={'X-CSRF-Token':self.csrf})
+        self.assertEqual(configured.status_code,200,configured.json)
+        output=io.BytesIO();Image.new('RGB',(80,60),'white').save(output,'PNG')
+        with patch.object(self.module,'generate_image',return_value=(output.getvalue(),'image/png')) as gen:
+            response=self.post('/api/concepts/generate',{'project_id':pid,'provider_id':'xai','mode':'sheet',
+                'prompt':'Terrain beast','instructions':'Blueprint linework','reference_ids':[aid]})
+        self.assertEqual(response.status_code,200,response.json)
+        self.assertEqual(response.json['views_completed'],6)
+        self.assertEqual(response.json['images_created'],1)
+        self.assertEqual(response.json['reference_count'],1)
+        self.assertEqual(len(gen.call_args.kwargs['reference_images']),1)
+        self.assertIn('SIX equal',gen.call_args.args[3])
+        current=self.client.get('/api/projects/'+pid).json
+        self.assertEqual(current['project']['selected_asset'],aid)
+        self.assertEqual(current['project']['settings']['last_generation']['mode'],'sheet')
+        self.assertEqual(current['project']['settings']['last_generation']['reference_ids'],[aid])
+        self.assertTrue(any('AI image' in item['event'] for item in self.client.get('/api/logs?scope=session').json['entries']))
+        second=self.post('/api/projects',{'name':'Different car'}).json['id']
+        denied=self.post('/api/concepts/generate',{'project_id':second,'provider_id':'xai','mode':'sheet','reference_ids':[aid]})
+        self.assertEqual(denied.status_code,400,denied.json)
+
     def test_chat_offline_and_login(self):
         pid=self.post('/api/projects',{'name':'Car'}).json['id']
         response=self.post('/api/chat',{'project_id':pid,'message':'A red supercar'})
