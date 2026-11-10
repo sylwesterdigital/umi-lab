@@ -1,4 +1,4 @@
-"""UMI LAB v0.1.6: authenticated Flask API and single-page studio."""
+"""UMI LAB: authenticated Flask API and single-page studio."""
 import base64
 import hashlib
 import csv
@@ -23,6 +23,9 @@ from . import db as store
 from .providers import PRESETS, BY_ID, ProviderError, chat as provider_chat, generate_image, safe_base_url, check_api
 
 ROOT=Path(__file__).resolve().parent.parent
+# Release metadata is the single source of truth for every API/version export.
+RELEASE_INFO=json.loads((ROOT/'version.json').read_text(encoding='utf-8'))
+RELEASE_VERSION=RELEASE_INFO['version']
 DATA=Path(os.environ.get('UMI_DATA_DIR', str(ROOT/'.umi-data'))).resolve()
 DATA.mkdir(mode=0o700,parents=True,exist_ok=True)
 MEDIA=DATA/'media'; MEDIA.mkdir(mode=0o700,exist_ok=True)
@@ -133,7 +136,7 @@ def index():return send_from_directory(str(ROOT/'frontend'),'index.html')
 def version():return send_from_directory(str(ROOT),'version.json')
 
 @app.get('/api/health')
-def health():return jsonify(ok=True,version='0.1.5',storage='sqlite',project='umi-lab')
+def health():return jsonify(ok=True,version=RELEASE_VERSION,storage='sqlite',project=RELEASE_INFO['project'])
 
 @app.get('/api/session')
 def session_info():
@@ -567,7 +570,7 @@ def make_manifest(row):
                 'status':'concept','mask':None,'mesh':None,'cad':None,'material':None,
                 'dimensions_mm':None,'tolerance_mm':None,'printable':False,
                 'attachment_points':[],'confidence':None})
-    return {'schema':'umi.manifest/1.0','version':'0.1.6','project':{'id':row['id'],'name':row['name'],
+    return {'schema':'umi.manifest/1.0','version':RELEASE_VERSION,'project':{'id':row['id'],'name':row['name'],
       'prompt':row['prompt'],'kind':row['kind'],'selected_asset':row['selected_asset']},
       'units':'mm','coordinates':PARTS['coordinate_system'],'design_settings':settings,
       'stages':{'reference':'available' if row['selected_asset'] else 'missing',
@@ -599,7 +602,7 @@ def export(pid):
         for part in manifest['parts']:
             writer.writerow([part['id'],part['label'],part['assembly'],part['status'],'false'])
         z.writestr('bom.csv',out.getvalue())
-        z.writestr('README.txt','UMI LAB concept export v0.1.6\nImages and BOM are design references, not CAD/STL files.\nAll dimensions, interfaces and tolerances require validation.\n')
+        z.writestr('README.txt',f'UMI LAB concept export v{RELEASE_VERSION}\nImages and BOM are design references, not CAD/STL files.\nAll dimensions, interfaces and tolerances require validation.\n')
         for a in assets:
             filename=a['filename']
             if (MEDIA/filename).is_file():z.write(MEDIA/filename,'references/'+filename)

@@ -277,14 +277,19 @@ with db.connect(path) as con:
 
 def http_health(port,version):
     from urllib.request import urlopen
+    problem='no successful health response'
     for i in range(18):
         try:
             with urlopen(f'http://127.0.0.1:{port}/api/health',timeout=4) as res:
                 body=json.loads(res.read(4096))
             if body.get('ok') and body.get('version')==version and body.get('storage')=='sqlite':return
-        except Exception:pass
+            problem=('health payload mismatch: expected release '+version+
+                     ', got version='+repr(str(body.get('version'))[:32])+
+                     ', storage='+repr(str(body.get('storage'))[:32]))
+        except Exception as exc:
+            problem=type(exc).__name__+': '+str(exc)[:160]
         time.sleep(1)
-    raise InstallError(f'UMI service failed local health check on port {port}')
+    raise InstallError(f'UMI service failed local health check on port {port}: {problem}')
 
 
 def configure_nginx(port):

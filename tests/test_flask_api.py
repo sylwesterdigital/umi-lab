@@ -30,7 +30,11 @@ class FlaskTest(unittest.TestCase):
         self.module=importlib.reload(a)
         self.client=self.module.app.test_client()
         self.addCleanup(self.restore)
-        self.assertEqual(self.client.get('/api/health').json['ok'],True)
+        actual=self.client.get('/api/health').json
+        self.assertTrue(actual['ok'])
+        from pathlib import Path
+        expected=json.loads((Path(__file__).resolve().parent.parent/'version.json').read_text())['version']
+        self.assertEqual(actual['version'],expected)
         res=self.client.post('/api/setup',json={'name':'Test Creator','password':'a-secure-passphrase'})
         self.assertEqual(res.status_code,200,res.json)
         self.csrf=res.json['csrf']

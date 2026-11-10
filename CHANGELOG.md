@@ -1,3 +1,9 @@
+# v0.1.7 — 2026-11-10
+- Fix Flask health endpoint reporting the previous release version, preventing service activation.
+- Use version.json as the sole source for API health and concept-export versions.
+- Add regression checks for release version consistency and actionable health-check errors.
+- Preserve prior database, credentials, provider settings, and UMI-only rollback.
+
 # v0.1.6 — 2026-11-10
 - Fix CSP by hashing the embedded Three.js import map; avoid unsafe-inline.
 - Fix Settings Models/Appearance/Profile navigation and password-form browser warnings.
