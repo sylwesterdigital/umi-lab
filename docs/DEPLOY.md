@@ -45,3 +45,6 @@ Keys are encrypted with Fernet and stored only server-side in SQLite. The key is
 ## Recoveries
 
 Each deployment preserves prior UMI service/vhost/current symlink files and snapshots the SQLite database before upgrading. Watcher never resets/stashes user changes. A failed deployment does not delete your data; report the latest watcher log. The watcher refuses unknown ZIP files, unmanifested paths, invalid checksums, downgrades and unexpected Git origin.
+
+
+This release adds new concepts-generation modes only; no watcher changes are required.

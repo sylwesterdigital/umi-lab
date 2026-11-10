@@ -127,7 +127,7 @@ def admin_password():
 
 VERSION_RE=re.compile(r'^\d+\.\d+\.\d+$')
 ZIP_RE=re.compile(r'^UMI_LAB_(?:UPDATE|RELEASE)_v(\d+\.\d+\.\d+)\.zip$')
-WATCHER_BUILD='0.1.2'
+WATCHER_BUILD='0.1.3'
 LOG=None
 VERBOSE=False
 COLOR='auto'
@@ -201,7 +201,7 @@ def local_validate_watcher(data):
         if not body:raise ArchiveError('Watcher Python body missing')
         p=Path(t)/'watcher.py';p.write_text(body.group(1)+'\n')
         run(['python3','-m','py_compile',p],timeout=15)
-    for term in ('StrictHostKeyChecking=yes','sha256','git_preflight','verify_public','rollback','--dry-run'):
+    for term in ('StrictHostKeyChecking=yes','sha256','git_preflight','verify_public','rollback','--dry-run','recover_partial_release','Staged release file is missing'):
         if term not in text:raise ArchiveError('Watcher regression guard absent: '+term)
 
 def validate(archive,stage):
@@ -234,6 +234,8 @@ def validate(archive,stage):
         if watcher is not None:expected.add('watcher-umi-lab.sh')
         if set(names)!=expected:raise ArchiveError('Unexpected or missing release files')
         for name,digest in files.items():
+            if ('__pycache__' in PurePosixPath(name).parts or name.endswith(('.pyc','.pyo'))):
+                raise ArchiveError('Compiled Python/cache files are not allowed in releases: '+name)
             if not name.startswith('app/') or not re.fullmatch(r'[a-zA-Z0-9_./-]+',name):
                 raise ArchiveError('Unexpected release path '+name)
             if not re.fullmatch(r'[0-9a-f]{64}',str(digest)):raise ArchiveError('Invalid digest '+name)
@@ -268,6 +270,53 @@ def validate(archive,stage):
             shutil.rmtree(cache,ignore_errors=True)
         return version,data
 
+def recover_partial_release(version):
+    """Recover only verified bytes left behind by a previously failed watcher copy.
+
+    No user changes are reset: every candidate must be byte-identical to a
+    release listed in updates/ or updates/superseded/, and a timestamped backup
+    is retained even for that narrowly verified case.
+    """
+    candidates=[]
+    for folder in (UPDATES, UPDATES/'superseded'):
+        if folder.is_dir():candidates.extend(sorted(folder.glob('UMI_LAB_UPDATE_v*.zip')))
+    known={}
+    for archive in candidates:
+        match=ZIP_RE.fullmatch(archive.name)
+        if not match or vt(match.group(1))>=vt(version):continue
+        try:
+            with zipfile.ZipFile(archive) as z:
+                meta=json.loads(z.read('manifest.json'))
+                if meta.get('version')!=match.group(1):continue
+                for name,digest in meta.get('sha256',{}).items():
+                    if name.startswith('app/') and not name.endswith(('.pyc','.pyo')) and '__pycache__' not in PurePosixPath(name).parts:
+                        known.setdefault(name[4:],set()).add(digest)
+        except (OSError,ValueError,KeyError,zipfile.BadZipFile):continue
+    status=run(['git','status','--porcelain=v1','--untracked-files=all'],cwd=ROOT).stdout.splitlines()
+    changed=[]
+    for line in status:
+        rel=line[3:]
+        if line.startswith('?? ') and (rel.startswith('updates/') or rel.startswith('.umi-lab/') or Path(rel).name=='.DS_Store'):
+            continue
+        if rel=='watcher-umi-lab.sh' and 'D' not in line[:2] and (ROOT/rel).is_file():continue
+        # Only pre-existing unstaged edits and verified untracked copies are recoverable.
+        if line[:2] not in (' M','??') or not known.get(rel):return
+        file=ROOT/rel
+        if not file.is_file() or file.is_symlink() or h(file.read_bytes()) not in known[rel]:return
+        changed.append((rel,line.startswith('?? ')))
+    if not changed:return
+    token=dt.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+    backup=STATE/'recovered-partial-releases'/token
+    for rel,_ in changed:
+        dest=backup/'files'/rel
+        dest.parent.mkdir(parents=True,exist_ok=True)
+        shutil.copy2(ROOT/rel,dest)
+    tracked=[rel for rel,untracked in changed if not untracked]
+    if tracked:run(['git','restore','--',*tracked],cwd=ROOT)
+    for rel,untracked in changed:
+        if untracked:(ROOT/rel).unlink()
+    log('Recovered '+str(len(changed))+' failed-release file(s); original bytes backed up to '+str(backup),'PASS')
+
 def git_preflight(version):
     global BOOTSTRAP_PASSWORD
     if not (ROOT/'.git').exists():raise ReleaseError('Watcher must be in a Git clone')
@@ -275,6 +324,7 @@ def git_preflight(version):
     origin=run(['git','remote','get-url','origin'],cwd=ROOT).stdout.strip()
     if origin not in (EXPECTED_REMOTE,'ssh://git@github.com/sylwesterdigital/umi-lab.git'):
         raise ReleaseError('Unexpected Git origin: '+origin)
+    recover_partial_release(version)
     status=run(['git','status','--porcelain=v1','--untracked-files=all'],cwd=ROOT).stdout.splitlines()
     for line in status:
         path=line[3:]
@@ -325,29 +375,71 @@ CHECK_UMI_ADMIN
     log(f'Git main, DNS, SSH ({SSH_HOST}:{SSH_PORT}) and nginx preflight passed','PASS')
 
 def push_git(stage,version,manifest):
-    for name in sorted(manifest['sha256']):
+    names=sorted(manifest['sha256'])
+    # Reject missing/changed stage members and untracked collisions BEFORE ANY copy.
+    # The v0.1.9 regression came from validating bytecode then deleting it, so
+    # the old watcher copied a few source files before hitting a missing .pyc.
+    preflight=[]
+    for name in names:
         relative=name[4:]
+        source=stage/name
         target=ROOT/relative
+        if (not source.is_file() or source.is_symlink() or
+            h(source.read_bytes())!=manifest['sha256'][name]):
+            raise ReleaseError('Staged release file is missing or changed: '+name)
         if target.is_symlink():raise ReleaseError('Refusing local symlink '+relative)
-        if target.exists() and run(['git','ls-files','--error-unmatch','--',relative],cwd=ROOT,check=False).returncode:
+        tracked=run(['git','ls-files','--error-unmatch','--',relative],cwd=ROOT,check=False).returncode==0
+        if target.exists() and not tracked:
             raise ReleaseError('Refusing to overwrite untracked local file '+relative)
-        target.parent.mkdir(parents=True,exist_ok=True)
-        shutil.copy2(stage/name,target)
+        preflight.append((source,target,tracked))
     watcher=stage/'watcher-umi-lab.sh'
-    if watcher.is_file():
+    if watcher.exists() and h(watcher.read_bytes())!=manifest.get('watcher',{}).get('sha256'):
+        raise ReleaseError('Watcher staged checksum mismatch')
+    committed=False
+    with tempfile.TemporaryDirectory(prefix='umi-local-release-backup-',dir=STATE) as backup_dir:
+        backup=Path(backup_dir)
+        originals=[]
+        for _,target,_ in preflight:
+            if target.exists():
+                old=backup/target.relative_to(ROOT)
+                old.parent.mkdir(parents=True,exist_ok=True)
+                shutil.copy2(target,old)
+                originals.append((target,old))
+            else:originals.append((target,None))
         current=ROOT/'watcher-umi-lab.sh'
-        if current.is_symlink():raise ReleaseError('Refusing watcher symlink')
-        if current.read_bytes()!=watcher.read_bytes():
-            backup=STATE/'watcher-backups';backup.mkdir(exist_ok=True)
-            shutil.copy2(current,backup/(dt.datetime.now().strftime('%Y%m%d-%H%M%S')+'.sh'))
-            temp=current.with_suffix('.new');temp.write_bytes(watcher.read_bytes());temp.chmod(0o755);os.replace(temp,current)
-            log('Updated watcher after checksum and syntax validation','PASS')
-    files=[name[4:] for name in manifest['sha256']]+['watcher-umi-lab.sh']
-    run(['git','add','--',*files],cwd=ROOT)
-    changed=run(['git','diff','--cached','--quiet'],cwd=ROOT,check=False)
-    if changed.returncode==1:
-        run(['git','commit','-m','Release UMI LAB v'+version],cwd=ROOT)
-    elif changed.returncode:raise ReleaseError('Git index verification failed')
+        if watcher.is_file() and current.is_file():
+            old=backup/'watcher-umi-lab.sh'
+            shutil.copy2(current,old)
+            originals.append((current,old))
+        try:
+            for source,target,_ in preflight:
+                target.parent.mkdir(parents=True,exist_ok=True)
+                shutil.copy2(source,target)
+            if watcher.is_file():
+                current=ROOT/'watcher-umi-lab.sh'
+                if current.is_symlink():raise ReleaseError('Refusing watcher symlink')
+                if not current.exists() or current.read_bytes()!=watcher.read_bytes():
+                    backups=STATE/'watcher-backups';backups.mkdir(exist_ok=True)
+                    if current.exists():shutil.copy2(current,backups/(dt.datetime.now().strftime('%Y%m%d-%H%M%S')+'.sh'))
+                    temp=current.with_suffix('.new');temp.write_bytes(watcher.read_bytes());temp.chmod(0o755);os.replace(temp,current)
+                    log('Updated watcher after checksum and syntax validation','PASS')
+            files=[name[4:] for name in names]+['watcher-umi-lab.sh']
+            run(['git','add','--',*files],cwd=ROOT)
+            changed=run(['git','diff','--cached','--quiet'],cwd=ROOT,check=False)
+            if changed.returncode==1:
+                run(['git','commit','-m','Release UMI LAB v'+version],cwd=ROOT)
+            elif changed.returncode:raise ReleaseError('Git index verification failed')
+            committed=True
+        except Exception:
+            if not committed:
+                for target,old in originals:
+                    if old and old.is_file():
+                        target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(old,target)
+                    elif target.is_file():target.unlink()
+                # Git index had been clean before processing this release.
+                run(['git','reset','--quiet','--',*[n[4:] for n in names],'watcher-umi-lab.sh'],cwd=ROOT,check=False)
+                log('Local copy/staging failed; original repository files restored','WARN')
+            raise
     head=run(['git','rev-parse','HEAD'],cwd=ROOT).stdout.strip()
     pushed=run(['git','push','-u','origin','main'],cwd=ROOT,timeout=140,check=False)
     remote=run(['git','ls-remote','origin','refs/heads/main'],cwd=ROOT,timeout=65).stdout

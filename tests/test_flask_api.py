@@ -134,6 +134,30 @@ class FlaskTest(unittest.TestCase):
         denied=self.post('/api/concepts/generate',{'project_id':second,'provider_id':'xai','mode':'sheet','reference_ids':[aid]})
         self.assertEqual(denied.status_code,400,denied.json)
 
+
+    def test_parts_workflow_modes_update_manifest(self):
+        from unittest.mock import patch
+        pid=self.post('/api/projects',{'name':'Breakdown truck','prompt':'Rocky terrain truck'}).json['id']
+        image=Image.new('RGB',(96,64),'gray');buf=io.BytesIO();image.save(buf,'PNG');buf.seek(0)
+        uploaded=self.client.post('/api/assets/upload',data={'project_id':pid,'image':(buf,'reference.png')},
+            headers={'X-CSRF-Token':self.csrf},content_type='multipart/form-data')
+        aid=uploaded.json['id']
+        self.client.put('/api/providers/xai',json={'enabled':True,'api_key':'test-key','model':'grok-4.7','image_model':'grok-imagine-image-2.0','base_url':'https://api.x.ai/v1'},headers={'X-CSRF-Token':self.csrf})
+        output=io.BytesIO();Image.new('RGB',(120,80),'white').save(output,'PNG')
+        with patch.object(self.module,'generate_image',return_value=(output.getvalue(),'image/png')):
+            annotated=self.post('/api/concepts/generate',{'project_id':pid,'provider_id':'xai','mode':'annotate','reference_ids':[aid]})
+            system=self.post('/api/concepts/generate',{'project_id':pid,'provider_id':'xai','mode':'system','system_id':'body','reference_ids':[aid]})
+            part=self.post('/api/concepts/generate',{'project_id':pid,'provider_id':'xai','mode':'part','part_name':'Front bumper','reference_ids':[aid]})
+        self.assertEqual(annotated.status_code,200,annotated.json)
+        self.assertEqual(system.status_code,200,system.json)
+        self.assertEqual(part.status_code,200,part.json)
+        manifest=self.client.get(f'/api/projects/{pid}/manifest').json
+        self.assertEqual(manifest['stages']['segmentation'],'annotated')
+        self.assertIn('body',manifest['parts_workflow']['system_sheets'])
+        self.assertIn('Front bumper',manifest['parts_workflow']['part_sheets'])
+        exported=self.client.get(f'/api/projects/{pid}/export')
+        self.assertEqual(exported.status_code,200)
+
     def test_chat_offline_and_login(self):
         pid=self.post('/api/projects',{'name':'Car'}).json['id']
         response=self.post('/api/chat',{'project_id':pid,'message':'A red supercar'})

@@ -87,3 +87,7 @@ button,input,textarea,select{font:inherit}button{cursor:pointer;background:none;
 .gallery-open img{display:block;height:100%;width:100%;object-fit:cover}
 
 .gallery-last-run{font-size:.75em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted);flex:none}
+
+.gallery-workflow #gallerySystem{flex:0 1 150px}
+.gallery-workflow #galleryPart{flex:1 1 180px;max-width:220px}
+.gallery-workflow.compact-parts #galleryInstructions{flex:2 1 220px}

@@ -1,1 +1,4 @@
-{"project":"umi-lab","version":"0.1.8","release":"Persistent studio, multi-image references, six-view sheets and inference activity","schema":"umi.parts/1.0"}
+{
+  "project": "umi-lab",
+  "version": "0.1.10"
+}
