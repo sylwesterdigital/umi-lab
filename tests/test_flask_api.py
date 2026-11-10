@@ -67,6 +67,40 @@ class FlaskTest(unittest.TestCase):
         self.assertEqual(response.status_code,201,response.json)
         self.assertEqual(self.client.get(response.json['url']).status_code,200)
         self.assertEqual(self.client.get(f'/api/projects/{pid}').json['project']['selected_asset'],response.json['id'])
+    def test_region_crop_and_ai_edit_preserve_outside(self):
+        from unittest.mock import patch
+        pid=self.post('/api/projects',{'name':'Truck'}).json['id']
+        original=Image.new('RGB',(100,80),(10,20,30))
+        raw=io.BytesIO();original.save(raw,'PNG');raw.seek(0)
+        upload=self.client.post('/api/assets/upload',data={'project_id':pid,'image':(raw,'truck.png')},
+            headers={'X-CSRF-Token':self.csrf},content_type='multipart/form-data')
+        self.assertEqual(upload.status_code,201,upload.json)
+        source=upload.json['id'];rect={'x':.2,'y':.25,'w':.3,'h':.5}
+        cropped=self.post('/api/assets/region',{'project_id':pid,'asset_id':source,'operation':'crop','rect':rect})
+        self.assertEqual(cropped.status_code,200,cropped.json)
+        result=Image.open(io.BytesIO(self.client.get(cropped.json['url']).data))
+        self.assertEqual(result.size,(30,40))
+        self.assertEqual(result.convert('RGB').getpixel((1,1)),(10,20,30))
+        self.client.put('/api/providers/xai',json={'enabled':True,'api_key':'test-key','model':'grok-4.7',
+            'image_model':'grok-imagine-image-2.0','base_url':'https://api.x.ai/v1'},headers={'X-CSRF-Token':self.csrf})
+        replacement=io.BytesIO();Image.new('RGB',(35,45),(255,0,0)).save(replacement,'PNG')
+        with patch.object(self.module,'generate_image',return_value=(replacement.getvalue(),'image/png')) as gen:
+            edited=self.post('/api/assets/region',{'project_id':pid,'asset_id':source,'operation':'edit',
+                 'rect':rect,'prompt':'Make bumper red','provider_id':'xai'})
+        self.assertEqual(edited.status_code,200,edited.json)
+        self.assertEqual(len(gen.call_args.kwargs['reference_images']),1)
+        output=Image.open(io.BytesIO(self.client.get(edited.json['url']).data)).convert('RGB')
+        self.assertEqual(output.getpixel((10,10)),(10,20,30))
+        self.assertEqual(output.getpixel((90,60)),(10,20,30))
+        self.assertEqual(output.getpixel((30,30)),(255,0,0))
+        self.assertEqual(self.client.get(f'/api/projects/{pid}').json['project']['selected_asset'],source)
+        other=self.post('/api/projects',{'name':'Elsewhere'}).json['id']
+        denied=self.post('/api/assets/region',{'project_id':other,'asset_id':source,'operation':'crop','rect':rect})
+        self.assertEqual(denied.status_code,404)
+        bad=self.post('/api/assets/region',{'project_id':pid,'asset_id':source,'operation':'crop',
+                 'rect':{'x':.9,'y':.2,'w':.5,'h':.5}})
+        self.assertEqual(bad.status_code,400)
+
     def test_provider_save_hides_key_and_csrf(self):
         r=self.client.put('/api/providers/openai',json={'enabled':True,'api_key':'top-secret','model':'gpt-4.1-mini','base_url':'https://api.openai.com/v1'})
         self.assertEqual(r.status_code,403)

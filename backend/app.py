@@ -569,6 +569,89 @@ def upload():
     if err:return jsonify(error=err),400
     return jsonify(id=aid,url='/api/media/'+aid),201
 
+@app.post('/api/assets/region')
+@authenticated
+def create_region_asset():
+    """Crop or generate a pixel-isolated regional edit from an owned project image."""
+    body=request.get_json(silent=True) or {}
+    pid=str(body.get('project_id') or '')
+    asset_id=str(body.get('asset_id') or '')
+    operation=str(body.get('operation') or '')
+    if operation not in ('crop','edit'):return jsonify(error='Unknown region action'),400
+    rect=body.get('rect')
+    if not isinstance(rect,dict):return jsonify(error='Select a region first'),400
+    try:
+        x,y,w,h=(float(rect[k]) for k in ('x','y','w','h'))
+    except (ValueError,KeyError,TypeError):return jsonify(error='Invalid selection'),400
+    import math
+    if (not all(math.isfinite(n) for n in (x,y,w,h)) or x<0 or y<0 or w<=0 or h<=0
+            or x+w>1.00001 or y+h>1.00001):
+        return jsonify(error='Selection outside image'),400
+    with store.connect(DATA) as conn:
+        project=store.project_for(conn,session['uid'],pid)
+        if not project:abort(404)
+        asset=conn.execute('SELECT * FROM assets WHERE id=? AND project_id=?',(asset_id,pid)).fetchone()
+        if not asset:abort(404)
+        try:
+            original=Image.open(MEDIA/asset['filename'])
+            original.load()
+        except (OSError,ValueError):return jsonify(error='Cannot decode source image'),400
+        W,H=original.size
+        left=max(0,min(W-1,int(round(x*W))))
+        top=max(0,min(H-1,int(round(y*H))))
+        right=min(W,max(left+1,int(round((x+w)*W))))
+        bottom=min(H,max(top+1,int(round((y+h)*H))))
+        if right-left<8 or bottom-top<8:return jsonify(error='Select an area at least 8 pixels wide and tall'),400
+        selected=original.crop((left,top,right,bottom)).convert('RGBA')
+        if operation=='edit':
+            provider_id=str(body.get('provider_id') or '')
+            prompt=str(body.get('prompt') or '').strip()[:600]
+            if not prompt:return jsonify(error='Describe the desired change'),400
+            try:preset,config,key=get_provider(conn,provider_id,body.get('temp_provider'))
+            except ProviderError as exc:return jsonify(error=str(exc)),400
+            if not preset.get('images'):return jsonify(error='Choose an image generation provider'),400
+            # Give the provider only the chosen region; the rest is never generated.
+            reference=io.BytesIO();selected.save(reference,'PNG')
+            instruction=('Edit ONLY this supplied crop. Preserve composition, edges, lighting and viewpoint. '
+                         'Change: '+prompt+'. Return ONE rectangular image of the same composition, filled to the edges, '
+                         'without borders, text, watermarks or extra panels.')
+            model=config.get('image_model') or preset.get('image_model') or ''
+            started=time.monotonic()
+            inference_event(conn,'image',provider_id,model,'region-started',102,0,1)
+            try:
+                image_bytes,mime=generate_image(preset,config,key,instruction,
+                          reference_images=[(reference.getvalue(),'image/png')])
+                edited=Image.open(io.BytesIO(image_bytes));edited.load()
+                if edited.width*edited.height>20_000_000:raise ProviderError('Image dimensions too large')
+                edited=edited.convert('RGBA').resize(selected.size,Image.Resampling.LANCZOS)
+            except (ProviderError,ValueError,OSError,UnidentifiedImageError) as exc:
+                inference_event(conn,'image',provider_id,model,'region-failed',502,
+                     round((time.monotonic()-started)*1000),1)
+                return jsonify(error=str(exc)),502
+            canvas=original.convert('RGBA')
+            # Pixel perfect outside selected bounds; no provider response can alter it.
+            canvas.paste(edited,(left,top))
+            view='region_edit';source='ai-region:'+provider_id
+            elapsed_ms=round((time.monotonic()-started)*1000)
+        else:
+            canvas=selected;view='crop';source='crop';elapsed_ms=0
+        payload=io.BytesIO();canvas.save(payload,'PNG',optimize=True)
+        saved_id,err=save_asset(conn,pid,payload.getvalue(),'image/png',view,source)
+        if err:return jsonify(error=err),400
+        # Keep the original reference selected; derivatives can be explicitly selected later.
+        conn.execute('UPDATE projects SET selected_asset=? WHERE id=?',(project['selected_asset'],pid))
+        settings=json.loads(project['settings'])
+        history=settings.setdefault('region_history',[])
+        history.append({'asset_id':saved_id,'source_asset_id':asset_id,'action':operation,
+                        'bounds_px':[left,top,right,bottom],'created_at':int(time.time())})
+        settings['region_history']=history[-60:]
+        conn.execute('UPDATE projects SET settings=? WHERE id=?',(json.dumps(settings),pid))
+        conn.commit()
+        if operation=='edit':
+            inference_event(conn,'image',provider_id,model,'region-completed',200,elapsed_ms,1)
+    return jsonify(id=saved_id,url='/api/media/'+saved_id,view=view,operation=operation,
+                   bounds_px=[left,top,right,bottom],elapsed_ms=elapsed_ms)
+
 @app.get('/api/media/<asset_id>')
 @authenticated
 def media(asset_id):

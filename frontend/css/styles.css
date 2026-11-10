@@ -91,3 +91,28 @@ button,input,textarea,select{font:inherit}button{cursor:pointer;background:none;
 .gallery-workflow #gallerySystem{flex:0 1 150px}
 .gallery-workflow #galleryPart{flex:1 1 180px;max-width:220px}
 .gallery-workflow.compact-parts #galleryInstructions{flex:2 1 220px}
+
+/* v0.1.13: floating non-modal image editing workspace */
+.image-editor{position:fixed;z-index:34;left:max(12px,calc(50vw - 530px));top:70px;width:min(1080px,calc(100vw - 24px));height:min(70vh,660px);min-width:330px;min-height:180px;display:flex;flex-direction:column;overflow:hidden;background:var(--pane);color:var(--text);border:1px solid var(--border);border-radius:15px;box-shadow:0 24px 80px rgba(0,0,0,.6);backdrop-filter:blur(30px)}
+.image-editor-handle{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--border);touch-action:none;cursor:move;user-select:none;min-height:44px}
+.image-editor-handle strong{white-space:nowrap;font-size:.91em}.image-editor-handle #previewCaption{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.79em;color:var(--muted);margin-right:auto}
+.editor-window-actions,.editor-selection-actions,.editor-edit-actions{display:flex;gap:5px;align-items:center;min-width:0}.image-editor button,.image-editor select{border:1px solid var(--border);border-radius:8px;padding:6px 9px;white-space:nowrap;background:var(--pane)}.image-editor button:hover{border-color:var(--accent)}.image-editor button:disabled{opacity:.32}
+.image-editor-body{flex:1;display:flex;flex-direction:column;min-height:0}.editor-rail{display:flex;align-items:center;gap:6px;padding:7px 10px;border-bottom:1px solid var(--border)}.editor-rail select{max-width:94px;padding:6px}.editor-rail button[aria-pressed=true]{background:var(--accent);color:#111622}.editor-rail #previewZoomLabel{font-size:.75em;color:var(--muted);min-width:38px;text-align:center}.rail-spacer{flex:1}
+.preview-stage{position:relative;flex:1;min-height:0;overflow:hidden;background:#0d1016}.preview-stage canvas{display:block;touch-action:none;width:100%;height:100%;cursor:crosshair}
+.editor-footer{border-top:1px solid var(--border);display:flex;align-items:center;gap:8px;padding:8px 10px;flex-wrap:wrap;min-height:47px}.editor-footer>span{font-size:.75em;color:var(--muted);flex:1 1 175px}.editor-edit-actions{flex:1 1 220px}.editor-edit-actions input{min-width:90px;flex:1;padding:6px 8px;font-size:.84em}.editor-footer #previewCrop,.editor-footer #previewEdit{background:var(--accent);color:#10151c;font-weight:650}
+.image-editor.collapsed{height:auto!important;min-height:0!important}.image-editor.collapsed .image-editor-body,.image-editor.collapsed #previewResize{display:none!important}
+/* Prompt can be moved and docked under the floating Concepts window. */
+.prompt-form{position:fixed;bottom:max(7px,env(safe-area-inset-bottom));z-index:16;box-shadow:0 14px 60px #0006;padding-top:3px}
+.prompt-handle{display:flex;align-items:center;justify-content:space-between;min-height:14px;padding:0 4px;color:var(--muted);cursor:move;touch-action:none;user-select:none}.prompt-handle>span{font-size:12px;letter-spacing:1px;line-height:16px}.prompt-handle>div{display:flex;gap:3px}.prompt-handle button{padding:0 5px;font-size:10px;color:var(--muted);line-height:16px}
+.prompt-form.floating{transform:none;bottom:auto}.prompt-form.docked{transform:none;bottom:auto}.prompt-form.minimized #promptBody{display:none}.prompt-form.minimized{padding-bottom:4px}
+@media(max-width:680px){.image-editor{top:62px;left:8px;width:calc(100vw - 16px);height:62vh}.editor-window-actions #previewPick{font-size:.68em;max-width:92px;overflow:hidden;text-overflow:ellipsis}.editor-footer{gap:4px}.editor-footer>span{flex-basis:100%}.editor-edit-actions{flex-basis:100%}.editor-rail{gap:3px}.editor-rail button,.editor-rail select{padding:5px}.prompt-form{bottom:7px}}
+
+/* Drawing-app left tool rail and responsive image viewport. */
+.image-editor-body{flex-direction:row}
+.editor-rail{flex:0 0 64px;width:64px;display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;padding:8px 6px;gap:6px;border-bottom:0;border-right:1px solid var(--border)}
+.editor-rail button,.editor-rail select{width:100%;min-width:0;text-align:center;padding:7px 3px}
+.editor-rail select{font-size:.71em;max-width:none;appearance:none;text-align-last:center}
+.editor-rail .rail-spacer{min-height:12px}
+.editor-rail #previewZoomLabel{min-width:0;font-size:.7em}
+.editor-work-area{display:flex;flex-direction:column;min-width:0;min-height:0;flex:1}
+@media(max-width:680px){.editor-rail{flex-basis:47px;width:47px;padding:6px 3px}.editor-rail select{font-size:.61em}}

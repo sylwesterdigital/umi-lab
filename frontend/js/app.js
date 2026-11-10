@@ -1,3 +1,4 @@
+import {setupImageEditor} from './image-editor.js';
 const $=selector=>document.querySelector(selector);
 const $$=selector=>[...document.querySelectorAll(selector)];
 const state={csrf:'',user:null,projects:[],project:null,assets:[],messages:[],providers:[],parts:null,viewer:null,drive:false,settings:'models',pending:null,filter:'all',logSize:12,logText:'',logTimer:null,appearance:{},tempProviders:{},selectedProvider:'',generating:false,activityTimer:null,activityHide:null,activityStart:0,previewIndex:-1,resumed:false,initialWorkspace:true};
@@ -99,10 +100,9 @@ function renderGallery(){const wrap=$('#galleryGrid');wrap.replaceChildren();con
  $('#showGallery').hidden=false;
 }
 function openPreview(index){if(!state.assets.length)return;state.previewIndex=(index+state.assets.length)%state.assets.length;const asset=state.assets[state.previewIndex];
- $('#previewImage').src=asset.url;$('#previewImage').alt=(asset.view||'Concept').replaceAll('_',' ');$('#previewCaption').textContent=`${state.previewIndex+1} / ${state.assets.length} · ${$('#previewImage').alt}`;
- $('#previewPick').textContent=selectedReferenceIds().includes(asset.id)?'Remove reference':'Select reference';$('#imagePreview').hidden=false;
+ previewEditor.open(asset,state.previewIndex,state.assets.length,selectedReferenceIds().includes(asset.id));
 }
-function closePreview(){$('#imagePreview').hidden=true;$('#previewImage').removeAttribute('src');}
+function closePreview(){previewEditor.close();}
 function restoreImageOptions(){try{const key='umi.image-options.'+state.project?.id;const options=JSON.parse(localStorage.getItem(key)||'{}');$('#galleryAction').value=options.mode||'sheet';$('#galleryInstructions').value=options.instructions||'';$('#gallerySystem').value=options.system_id||'';$('#galleryPart').value=options.part_name||'';}catch(e){$('#galleryAction').value='sheet';$('#galleryInstructions').value='';$('#gallerySystem').value='';$('#galleryPart').value='';}updateGalleryModeUI();}
 function saveImageOptions(){if(!state.project)return;try{localStorage.setItem('umi.image-options.'+state.project.id,JSON.stringify({mode:$('#galleryAction').value,instructions:$('#galleryInstructions').value,system_id:$('#gallerySystem').value,part_name:$('#galleryPart').value.trim()}));}catch(e){}}
 function updateGalleryModeUI(){const mode=$('#galleryAction').value;const system=mode==='system';const part=mode==='part'||mode==='segment';$('#gallerySystem').hidden=!system;$('#galleryPart').hidden=!part;$('#galleryImageModel').hidden=mode==='segment'||!state.providers.some(p=>p.images&&isConfigured(p));$('#galleryInstructions').placeholder=mode==='annotate'?'Label visible systems and major parts (optional)':mode==='system'?'Focus instructions for the chosen system (optional)':mode==='segment'?'One visible part per request · one selected reference':mode==='part'?'Construction notes for the isolated part (optional)':'Refine style or details (optional)';$('#galleryBody').classList.toggle('compact-parts',system||part);}
@@ -184,6 +184,56 @@ async function generateConcepts(options={}){
   }catch(e){activity(e.message,preferred.name,false,true);toast('Image generation: '+e.message,true);return false;}
   finally{setBusy(button,false);state.generating=false;}
  });
+}
+
+async function saveRegionImage(asset,rect,operation,prompt=''){
+ if(!state.project||state.generating)return;
+ const projectID=state.project.id;
+ const imageID=$('#galleryImageModel').value||$('#imageProviderSelect').value;
+ const provider=state.providers.find(p=>p.id===imageID);
+ if(operation==='edit'&&!provider){openSettings('models');toast('Connect an image provider first',true);return;}
+ state.generating=true;
+ activity(operation==='crop'?'Cropping selected area':'Editing selected area only',provider?.name||'',false);
+ try{
+  const res=await api('assets/region',{method:'POST',json:{project_id:projectID,asset_id:asset.id,rect,operation,prompt,
+      provider_id:operation==='edit'?imageID:'',temp_provider:operation==='edit'?tempConfig(imageID):null}});
+  await openProject(projectID);
+  const newIndex=state.assets.findIndex(a=>a.id===res.id);
+  if(newIndex>=0)openPreview(newIndex);
+  toggleGallery(true);
+  activity(operation==='crop'?'Crop saved to gallery':'AI edit saved · outside selection preserved',provider?.name||'',true);
+ }catch(e){activity(e.message,provider?.name||'',false,true);toast((operation==='crop'?'Crop':'AI edit')+': '+e.message,true);}
+ finally{state.generating=false;}
+}
+const previewEditor=setupImageEditor({
+ onPick:asset=>toggleReference(asset.id).then(()=>previewEditor.setSelected(selectedReferenceIds().includes(asset.id))).catch(e=>toast(e.message,true)),
+ onCrop:(asset,rect)=>saveRegionImage(asset,rect,'crop'),
+ onEdit:(asset,rect,prompt)=>saveRegionImage(asset,rect,'edit',prompt)
+});
+function positionDockedPrompt(){const form=$('#promptForm');if(!form.classList.contains('docked'))return;
+ const gallery=$('#galleryPane');if(gallery.hidden){form.style.left='50%';form.style.top='';form.style.bottom='max(7px,env(safe-area-inset-bottom))';form.style.transform='translateX(-50%)';return;}
+ const box=gallery.getBoundingClientRect(),w=Math.min(form.offsetWidth,innerWidth-16);
+ let left=Math.max(8,Math.min(innerWidth-w-8,box.left+(box.width-w)/2));
+ let top=box.bottom+8;if(top+form.offsetHeight>innerHeight-8)top=Math.max(8,box.top-form.offsetHeight-8);
+ form.style.left=left+'px';form.style.top=top+'px';form.style.bottom='auto';form.style.transform='none';
+}
+function enablePromptWindow(){const form=$('#promptForm'),handle=$('#promptHandle'),dock=$('#promptDock');
+ const resetBottom=()=>{form.classList.remove('docked','floating');form.style.left='50%';form.style.top='';form.style.bottom='max(7px,env(safe-area-inset-bottom))';form.style.transform='translateX(-50%)';};
+ dock.onclick=()=>{if(form.classList.contains('docked')){resetBottom();dock.textContent='Dock';}else{if($('#galleryPane').hidden)toggleGallery(true);form.classList.add('docked');form.classList.remove('floating');dock.textContent='Undock';positionDockedPrompt();}try{localStorage.setItem('umi.prompt.docked',form.classList.contains('docked')?'1':'0');}catch(e){}};
+ $('#promptCollapse').onclick=()=>{const collapsed=form.classList.toggle('minimized');$('#promptCollapse').textContent=collapsed?'□':'−';positionDockedPrompt();};
+ handle.addEventListener('pointerdown',ev=>{if(ev.button!==0||ev.target.closest('button'))return;
+  ev.preventDefault();const b=form.getBoundingClientRect(),origin={x:ev.clientX,y:ev.clientY,left:b.left,top:b.top};
+  form.classList.remove('docked');form.classList.add('floating');dock.textContent='Dock';
+  form.style.left=b.left+'px';form.style.top=b.top+'px';form.style.bottom='auto';form.style.transform='none';
+  try{localStorage.setItem('umi.prompt.docked','0');}catch(e){}
+  handle.setPointerCapture(ev.pointerId);
+  const move=e=>{form.style.left=Math.max(0,Math.min(innerWidth-100,origin.left+e.clientX-origin.x))+'px';form.style.top=Math.max(0,Math.min(innerHeight-40,origin.top+e.clientY-origin.y))+'px';};
+  const done=()=>{handle.removeEventListener('pointermove',move);handle.removeEventListener('pointerup',done);handle.removeEventListener('pointercancel',done);try{localStorage.setItem('umi.prompt.bounds',JSON.stringify({left:form.style.left,top:form.style.top}));}catch(e){}};
+  handle.addEventListener('pointermove',move);handle.addEventListener('pointerup',done);handle.addEventListener('pointercancel',done);
+ });
+ try{if(localStorage.getItem('umi.prompt.docked')==='1'){form.classList.add('docked');dock.textContent='Undock';positionDockedPrompt();}else{const b=JSON.parse(localStorage.getItem('umi.prompt.bounds')||'{}');if(Number.isFinite(parseFloat(b.left))&&Number.isFinite(parseFloat(b.top))){form.classList.add('floating');form.style.left=Math.max(0,Math.min(innerWidth-100,parseFloat(b.left)))+'px';form.style.top=Math.max(0,Math.min(innerHeight-40,parseFloat(b.top)))+'px';form.style.bottom='auto';form.style.transform='none';}}}catch(e){}
+ const gallery=$('#galleryPane');new MutationObserver(()=>positionDockedPrompt()).observe(gallery,{attributes:true,attributeFilter:['style','hidden','class']});
+ window.addEventListener('resize',positionDockedPrompt);
 }
 const tempStorage='umi-lab.temp-providers.v1',preferenceStorage='umi-lab.model-preferences.v1';
 function loadTempProviders(){try{const value=JSON.parse(sessionStorage.getItem(tempStorage)||'{}');state.tempProviders=(value&&typeof value==='object')?value:{};}catch(e){state.tempProviders={};}}
@@ -275,7 +325,7 @@ async function initializeViewer(){try{state.viewer=await import('./viewer.js');a
 function downloadJSON(obj,name){const href=URL.createObjectURL(new Blob([JSON.stringify(obj,null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=href;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(href),2000);}
 function bind(){
  $('#providerFilter').onchange=renderProviders;$('#providerSelect').onchange=()=>{state.selectedProvider=$('#providerSelect').value;renderProviderEditor();};$('#imageProviderSelect').onchange=()=>{$('#galleryImageModel').value=$('#imageProviderSelect').value;saveChoices();};$('#modelSelect').onchange=saveChoices;$('#galleryImageModel').onchange=()=>{$('#imageProviderSelect').value=$('#galleryImageModel').value;saveChoices();};$('#promptForm').addEventListener('submit',sendPrompt);$('#promptInput').addEventListener('input',keepDraft);$('#promptInput').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('#promptForm').requestSubmit();}});
- $('#homeButton').onclick=()=>{keepDraft();state.project=null;state.assets=[];state.messages=[];state.resumed=false;try{localStorage.removeItem(resumeProjectKey());}catch(e){}$('#welcome').hidden=false;$('#conversation').hidden=true;$('#galleryPane').hidden=true;$('#showGallery').hidden=true;restoreDraft();$('#promptInput').focus();};$('#toolsButton').onclick=()=>{const willShow=$('#toolsMenu').hidden;$('#toolsMenu').hidden=!willShow;$('#toolsButton').setAttribute('aria-expanded',String(willShow));};$$('#toolsMenu .tool').forEach(b=>b.addEventListener('click',closeTools));$('#settingsButton').onclick=()=>openSettings('models');$('#closeSettings').onclick=closeSettings;$('#drawerBackdrop').onclick=closeSettings;
+ $('#homeButton').onclick=()=>{if(state.project){$('#welcome').hidden=true;$('#conversation').hidden=state.messages.length===0;toggleGallery(true);toast('Workspace restored');}else{$('#welcome').hidden=false;}$('#promptInput').focus();};$('#toolsButton').onclick=()=>{const willShow=$('#toolsMenu').hidden;$('#toolsMenu').hidden=!willShow;$('#toolsButton').setAttribute('aria-expanded',String(willShow));};$$('#toolsMenu .tool').forEach(b=>b.addEventListener('click',closeTools));$('#chatButton').onclick=()=>{$('#conversation').hidden=state.messages.length===0?true:!$('#conversation').hidden;};$('#settingsButton').onclick=()=>openSettings('models');$('#closeSettings').onclick=closeSettings;$('#drawerBackdrop').onclick=closeSettings;
  $$('.drawer-tabs button').forEach(b=>b.onclick=()=>selectSettings(b.dataset.settings));$('#accountButton').onclick=()=>state.user?openSettings('profile'):showAuth('guest');$('#accountAction').onclick=()=>{if(state.user?.role==='guest'){closeSettings();showAuth('upgrade');}else if(state.user){logout();}else{closeSettings();showAuth('register');}};
  $('#logoutButton').onclick=logout;$('#profileForm').onsubmit=saveProfile;$('#profileAvatar').onchange=e=>saveAvatar(e.target.files[0]);
  for(const id of ['themeSelect','accentColor','surfaceColor','textColor','fontSelect','fontCustom','uiScale'])$('#'+id).addEventListener('input',saveAppearance);$('#resetAppearance').onclick=resetAppearance;$('#fontUpload').onchange=e=>uploadFont(e.target.files[0]);
@@ -283,11 +333,11 @@ function bind(){
  $('#partsButton').onclick=()=>withSession(async()=>togglePanel('partsPane'));$('#garageButton').onclick=()=>withSession(async()=>togglePanel('garagePane'));$('#editButton').onclick=()=>togglePanel('editPane');$('#closeParts').onclick=()=>$('#partsPane').hidden=true;$('#closeGarage').onclick=()=>$('#garagePane').hidden=true;$('#closeEdit').onclick=()=>$('#editPane').hidden=true;
  $('#partSearch').oninput=renderParts;$('#newProject').onclick=()=>withSession(async()=>{await createProject();hideSidePanels();$('#welcome').hidden=false;$('#promptInput').focus();});$('#manifestButton').onclick=()=>withSession(async()=>{if(!state.project){toast('Create a project first');return;}const manifest=await api('projects/'+state.project.id+'/manifest');downloadJSON(manifest,'UMI_'+state.project.id.slice(0,8)+'_manifest.json');});
  $('#galleryAction').onchange=()=>{updateGalleryModeUI();saveImageOptions();};$('#gallerySystem').onchange=saveImageOptions;$('#galleryPart').oninput=saveImageOptions;$('#galleryInstructions').oninput=saveImageOptions;$('#collapseGallery').onclick=()=>{const collapsed=$('#galleryPane').classList.toggle('collapsed');$('#collapseGallery').textContent=collapsed?'□':'−';};enableGalleryDrag();
- $('#previewPrev').onclick=()=>openPreview(state.previewIndex-1);$('#previewNext').onclick=()=>openPreview(state.previewIndex+1);$('#closePreview').onclick=closePreview;$('#previewPick').onclick=async()=>{try{await toggleReference(state.assets[state.previewIndex].id);openPreview(state.previewIndex);}catch(e){toast(e.message,true);}};$('#imagePreview').onclick=e=>{if(e.target===$('#imagePreview'))closePreview();};
+ document.addEventListener('umi-preview-step',event=>openPreview(state.previewIndex+event.detail));
  $('#attachButton').onclick=()=>$('#uploadInput').click();$('#uploadInput').onchange=e=>{uploadFile(e.target.files[0]).catch(err=>toast(err.message,true));e.target.value='';};$('#showGallery').onclick=()=>toggleGallery(true);$('#closeGallery').onclick=()=>toggleGallery(false);$('#generateButton').onclick=generateConcepts;$('#exportButton').onclick=()=>withSession(async()=>{if(!state.project){toast('Create a project first');return;}window.location.href='/api/projects/'+state.project.id+'/export';});
  $('#clearChatView').onclick=()=>$('#conversation').hidden=true;for(const id of ['bodyColor','rideHeight','wheelSize','explodeToggle'])$('#'+id).oninput=applyModelSettings;$('#saveDesign').onclick=()=>saveModel().catch(e=>toast(e.message,true));$('#driveButton').onclick=toggleDrive;$('#resetDriveButton').onclick=()=>state.viewer?.resetDriving();
  $('#logsButton').onclick=showLogs;$('#closeLogs').onclick=closeLogs;$('#collapseLogs').onclick=()=>{const collapsed=$('#logWindow').classList.toggle('collapsed');$('#collapseLogs').textContent=collapsed?'□':'−';};$('#logSmaller').onclick=()=>changeLogSize(-1);$('#logLarger').onclick=()=>changeLogSize(1);$('#logScope').onchange=refreshLogs;$('#refreshLogs').onclick=refreshLogs;$('#copyLogs').onclick=async()=>{try{await navigator.clipboard.writeText(state.logText);toast('Session log copied');}catch(e){toast('Clipboard unavailable',true);}};enableLogDrag();
  let depth=0;document.addEventListener('dragenter',e=>{if(![...(e.dataTransfer?.types||[])].includes('Files'))return;depth++;$('#dropOverlay').hidden=false;});document.addEventListener('dragover',e=>{if([...(e.dataTransfer?.types||[])].includes('Files'))e.preventDefault();});document.addEventListener('dragleave',e=>{if(![...(e.dataTransfer?.types||[])].includes('Files'))return;depth=Math.max(0,depth-1);if(!depth)$('#dropOverlay').hidden=true;});document.addEventListener('drop',e=>{e.preventDefault();depth=0;$('#dropOverlay').hidden=true;const file=[...(e.dataTransfer?.files||[])].find(f=>f.type.startsWith('image/'));if(file)uploadFile(file).catch(err=>toast(err.message,true));});
  document.addEventListener('click',e=>{if(!e.target.closest('.header-right'))closeTools();});document.addEventListener('keydown',e=>{if(e.key==='Escape'){closePreview();closeTools();$('#authOverlay').hidden=true;closeSettings();hideSidePanels();$('#galleryPane').hidden=true;}});
 }
-loadTempProviders();bind();updateGalleryModeUI();loadAppearance();restoreLocalFont();try{state.logSize=Math.min(23,Math.max(9,Number(localStorage.getItem('umi-lab.log-font')||12)));}catch(e){}$('#logOutput').style.fontSize=state.logSize+'px';initializeViewer();refreshSession().catch(err=>toast('Server connection unavailable: '+err.message,true));
+loadTempProviders();bind();enablePromptWindow();updateGalleryModeUI();loadAppearance();restoreLocalFont();try{state.logSize=Math.min(23,Math.max(9,Number(localStorage.getItem('umi-lab.log-font')||12)));}catch(e){}$('#logOutput').style.fontSize=state.logSize+'px';initializeViewer();refreshSession().catch(err=>toast('Server connection unavailable: '+err.message,true));

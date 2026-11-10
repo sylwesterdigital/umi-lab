@@ -1,3 +1,6 @@
+# UMI LAB Changelog
+
+## 0.1.13
 ## 0.1.12
 - Fixed SAM 3.1 unit tests for clean macOS Python environments without requests; no change to production inference.
 

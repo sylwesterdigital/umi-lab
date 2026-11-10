@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="umi-version" content="0.1.12"><meta name="theme-color" content="#111318">
+  <meta name="umi-version" content="0.1.13"><meta name="theme-color" content="#111318">
   <title>UMI LAB</title>
   <link rel="stylesheet" href="/static/css/styles.css">
   <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/","cannon-es":"https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"}}</script>
@@ -15,11 +15,11 @@
     <div class="scene-help" id="sceneHelp" hidden>Drag to orbit · Scroll to zoom</div>
   </section>
   <header class="shell-header">
-    <button id="homeButton" class="wordmark" title="New vehicle prompt" aria-label="UMI LAB home">UMI LAB</button>
+    <button id="homeButton" class="wordmark" title="Restore workspace" aria-label="Restore UMI LAB workspace">UMI LAB</button>
     <div class="header-right">
       <button id="toolsButton" class="tool" aria-expanded="false" aria-controls="toolsMenu">Tools</button>
       <nav class="main-tools" id="toolsMenu" aria-label="Workspace tools" hidden>
-        <button id="garageButton" class="tool" title="Projects">Garage</button>
+        <button id="garageButton" class="tool" title="Projects">Garage</button><button id="chatButton" class="tool" title="Show conversation">Conversation</button>
         <button id="partsButton" class="tool" title="Part library">Parts</button>
         <button id="editButton" class="tool" title="Model controls">Edit model</button>
         <button id="driveButton" class="tool" title="Simulate driving">Drive</button>
@@ -42,17 +42,23 @@
       <div id="galleryGrid" class="gallery-grid"></div><div id="galleryLastRun" class="gallery-last-run" aria-live="polite"></div><div class="gallery-footnote">Tick images as references. Choose a workflow: six-view, annotate, system sheet, isolated part, or a single view. Open any image for full-size preview.</div>
     </div><div id="galleryResize" class="resize-handle" aria-hidden="true"></div>
   </section>
-  <form id="promptForm" class="prompt-form">
+  <form id="promptForm" class="prompt-form"><div id="promptHandle" class="prompt-handle"><span title="Drag prompt">⋮⋮</span><div><button id="promptDock" type="button" title="Dock below Concepts">Dock</button><button id="promptCollapse" type="button" title="Collapse prompt">−</button></div></div><div id="promptBody">
     <label class="sr-only" for="promptInput">Describe a vehicle</label>
     <textarea id="promptInput" rows="1" placeholder="Describe your ride…" maxlength="6000"></textarea>
     <div class="prompt-actions"><button id="attachButton" type="button" title="Add vehicle image" aria-label="Add reference image">＋</button><select id="modelSelect" aria-label="Conversation model" hidden><option value="">Offline chat</option></select><label id="autoImageLabel" class="auto-image-label" hidden><input type="checkbox" id="autoImages" checked> Images</label><select id="imageProviderSelect" aria-label="Image generation provider" hidden></select><button id="showGallery" type="button" hidden>Gallery</button><button id="sendButton" type="submit" aria-label="Send prompt">↑</button></div>
     <input id="uploadInput" type="file" accept="image/jpeg,image/png,image/webp" hidden>
-  </form>
+    </div></form>
   <div class="drive-help" id="driveHelp" hidden>W / ↑ accelerate · S / ↓ reverse · A / D steer · Space brake</div>
   <div id="dropOverlay" class="drop-overlay" hidden>Drop an image to use as a reference</div>
   <div id="toast" class="toast" role="status"></div>
 </div>
-<div id="imagePreview" class="image-preview" hidden role="dialog" aria-modal="true" aria-label="Concept image preview"><div class="preview-tools"><span id="previewCaption"></span><div><button id="previewPick" type="button">Select reference</button><button id="previewPrev" type="button" aria-label="Previous image">‹</button><button id="previewNext" type="button" aria-label="Next image">›</button><button id="closePreview" type="button" aria-label="Close preview">×</button></div></div><img id="previewImage" alt="Selected vehicle concept"></div>
+<section id="imagePreview" class="image-editor" hidden role="region" aria-label="Floating image editor">
+  <div id="previewHandle" class="image-editor-handle"><strong>Image editor</strong><span id="previewCaption"></span><div class="editor-window-actions"><button id="previewPick" type="button">Select reference</button><button id="previewPrev" type="button" title="Previous image">‹</button><button id="previewNext" type="button" title="Next image">›</button><button id="previewCollapse" type="button" title="Collapse editor">−</button><button id="closePreview" type="button" title="Close editor">×</button></div></div>
+  <div class="image-editor-body"><div class="editor-rail" role="toolbar" aria-label="Image tools"><button id="previewRect" type="button" aria-pressed="true" title="Rectangle selection">▭</button><button id="previewPan" type="button" aria-pressed="false" title="Pan image">✥</button><select id="previewRatio" aria-label="Selection aspect ratio" title="Selection ratio"><option value="free">Free</option><option value="1:1">1:1</option><option value="3:2">3:2</option><option value="3:4">3:4</option><option value="4:3">4:3</option><option value="16:9">16:9</option></select><div class="rail-spacer"></div><button id="previewZoomIn" type="button" title="Zoom in">＋</button><span id="previewZoomLabel" aria-live="polite">100%</span><button id="previewZoomOut" type="button" title="Zoom out">−</button><button id="previewFit" type="button" title="Fit image">Fit</button></div>
+    <div class="editor-work-area"><div id="previewStage" class="preview-stage"><canvas id="previewCanvas" aria-label="Image for selection and crop" tabindex="0"></canvas></div>
+    <div class="editor-footer"><span id="previewSelectionInfo">Drag a rectangle · wheel/pinch to zoom · Space to pan</span><div class="editor-selection-actions"><button id="previewCancel" type="button">Cancel</button><button id="previewConfirm" type="button">Confirm</button><button id="previewCrop" type="button">Crop</button></div><div class="editor-edit-actions"><input id="previewEditPrompt" type="text" maxlength="600" aria-label="Edit only the selected area" placeholder="Change selected area only…"><button id="previewEdit" type="button">Edit AI</button></div></div></div>
+  </div><div id="previewResize" class="resize-handle" aria-hidden="true"></div>
+</section>
 <div class="shade" id="drawerBackdrop" hidden></div>
 <aside id="settingsDrawer" class="drawer" aria-hidden="true">
   <div class="drawer-heading"><strong>Settings</strong><button id="closeSettings" class="close" aria-label="Close settings">×</button></div>
