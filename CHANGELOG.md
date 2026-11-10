@@ -1,27 +1,19 @@
-# Changelog
+# UMI LAB changelog
 
-## v0.1.3 — 2026-11-10
+## 0.1.4 — 3D-first studio and identity controls
 
-- Persist SSH host, SSH port (333 by default), server IP and Certbot email in a private local config.
-- Ask for initial admin password once, securely via macOS terminal, with no exports required.
-- Add `--configure` and `--show-config`; preserve old deployments and ZIP validation logic.
+- Replaced the three-column dashboard with a clean full-screen Three.js workspace and a single starting question.
+- Kept only the animated gradient-text `UMI LAB` logo, not an app icon.
+- Moved projects, parts, procedural model adjustments and concept galleries behind functional controls.
+- Integrated `cannon-es` RaycastVehicle simulation with driving, braking, steering and reset controls.
+- Added a movable, collapsible, resizable application-log window with font size, refresh and copy.
+- Added per-user server-stored audit events; administrator-only global application logs, with no request payload or credential logging.
+- Added name-only guests, private accounts, conversion from guest to protected account, protected contact data, avatar upload, bio and vehicle focus.
+- Added saved theme, accent and text colours, interface scaling, installed font names, and browser-local font upload.
+- Migrates existing SQLite users without deleting or replacing admin accounts, projects, provider keys, or assets.
+- No unimplemented AI segmentation or CAD controls are shown.
+- Preserves watchdog/deployment format and remote isolated Gunicorn/nginx service.
 
-## v0.1.2 — 2026-11-10
-- Fix UMI watcher default SSH port to 333 (shared Ubuntu host), instead of 22.
-- Keep SSH port configurable via UMI_SSH_PORT; preserve isolated Flask port selection.
-- Update deployment documentation and version markers.
+## 0.1.3 — Persistent watcher settings
 
-## v0.1.1 — 2026-11-10
-
-- Fix macOS watcher dry-run failure on Python without `requests` installed.
-- Lazy-load provider HTTP transport only when real inference is requested.
-- Add dependency-free import regression test (`python -S`).
-- Align app, health, export and release version markers at v0.1.1.
-
-## v0.1.0 — 2026-11-10
-
-- First UMI LAB Flask/SQLite release with one-page studio, 16-part-system taxonomy and profile authentication.
-- Encrypted provider configuration, user-selectable chat models, Gemini/Anthropic/OpenAI-compatible chat adapters.
-- Four-view image generation for OpenAI, xAI and Gemini, local image uploads and gallery reference selection.
-- Procedural 3D vehicle playground, manifest and concept BOM ZIP export.
-- macOS ZIP watcher, verified Git push and isolated Ubuntu/nginx deployment with upgrade/rollback logic.
+- Watcher configuration persists in a local user-controlled file; default SSH port is 333.

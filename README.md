@@ -1,55 +1,32 @@
 # UMI LAB — Universal Modelling Intelligence
 
-**Version 0.1.3 | Foundation**
+Version 0.1.4 is the 3D-first studio foundation. It deliberately opens with no dashboard, sidebar or signup wall: a full-screen Three.js scene, the gradient-text UMI LAB wordmark, and a single vehicle design prompt. All additional controls have a real implementation.
 
-One-page Flask/SQLite studio for vehicle concepts, image references, provider-agnostic conversation, 4-view concept generation, a procedural 3D preview, and a structured component catalogue. Future vehicle classes share the same ontology-driven scene-graph architecture.
+## Controls
 
-## Local macOS setup
+- **Design prompt** starts a project and stores conversation. Offline responses label their limitations; live LLM calls require configured model providers.
+- **+** accepts JPG, PNG or WebP. Dropped images are processed and stored as references for the current project.
+- **Gallery** displays uploaded or generated image concepts. Generation requires an enabled image-capable provider and explicit charge confirmation.
+- **Parts** searches the ontology and exports a non-printable production manifest.
+- **Edit** changes colour, ride height, wheel scale and exploded view for the procedural prototype.
+- **Drive** activates cannon-es RaycastVehicle; W/Up accelerate, S/Down reverse, A/D steer, Space brake, Reset returns to origin.
+- **Garage** selects and creates saved vehicle projects.
+- **Settings** configures AI providers, interface appearance, custom fonts, and user profile.
+- **Logs** opens a drag-and-resize window with scalable text, refresh and copy. Session logs are per-user audit records created on the server. Administrator-only App server log shows sanitised HTTP activity for this UMI deployment; it does *not* read system-wide journal logs.
+- **Profile** can begin as a name-only guest (no password/email/phone) and later be protected with a username/password and optional email/phone. Existing protected accounts can sign in. Profile photos upload through authenticated, image-validated endpoints.
 
-The supplied `watcher-umi-lab.sh` goes in the repository root, not in `updates/`. Download `UMI_LAB_UPDATE_v0.1.3.zip` to `updates/`. On an existing empty repository, the watcher runs local checks then pushes and deploys. To preview locally without deploying, install the Python dependencies and initialize a **local-only** administrator:
+## Privacy and limitations
 
-```bash
-cd /Users/smielniczuk/Documents/works/umi-lab
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r backend/requirements.txt
-UMI_ENABLE_SETUP=1 python3 -m backend.app
-# http://127.0.0.1:5057
-```
-
-Local profile creation requires a 12+ character password. For production, local setup is OFF. On the first deployment to a new server database, the watcher **asks for the initial admin password once**, directly on the macOS terminal (it is not saved in its settings or printed). Subsequent deployments require no password entry.
-
-## UI
-
-- Prompt/chat and personal projects persisted in SQLite.
-- Provider drawer for OpenAI, xAI, Gemini, Anthropic, OpenRouter, DeepSeek, Groq, Together/Meta, Fireworks, Cerebras, Mistral, Perplexity, Kimi, NVIDIA, SiliconFlow, Hugging Face, Ollama, LM Studio, vLLM, custom OpenAI-compatible router.
-- Server-side encrypted API keys. Toggles enable/disable providers; model/endpoint fields editable.
-- Real chat adapters: OpenAI-compatible Chat Completions, native Gemini `generateContent`, Anthropic Messages.
-- Real image generation for OpenAI, xAI and Gemini. Generates four independent views, may incur four provider charges. Current release does **not** guarantee multi-view geometric consistency.
-- Uploaded JPG/PNG/WebP references; concept gallery with explicit selection.
-- Procedural Three.js vehicle proxy for orbit/colour/ride-height/wheel-size/exploded view. **Not reconstructed from an image**.
-- Ontology covering 16 assemblies; concept BOM, JSON manifest, design reference archive.
-
-## Endpoints
-
-`GET /api/health`, `GET /api/session`, `POST /api/setup` (only when explicitly enabled, loopback only), `POST /api/login`, `POST /api/logout`, `GET|PUT /api/profile`, `GET /api/parts`, `GET|POST /api/projects`, `GET|PATCH|DELETE /api/projects/<id>`, `GET /api/projects/<id>/manifest`, `GET /api/projects/<id>/export`, `GET|PUT /api/providers[/<id>]`, `POST /api/chat`, `POST /api/assets/upload`, `GET /api/media/<id>`, `POST /api/concepts/generate`.
-
-## Model & fabrication boundaries
-
-The parts manifest marks all parts `concept`, with absent dimensions, meshes, CAD, masks and attachment constraints. A real print pipeline requires calibrated multi-view input or a validated human-defined CAD design, segmentation/masks, camera alignment, watertight meshes, parametric surfaces, attachment planes, fit tolerances, materials, slicer checks and hardware verification. An image alone cannot reveal concealed hardware or reliable engineering dimensions.
+- Guest sessions persist as a signed browser cookie for up to 14 days but can be lost when cookies are cleared. Protect the profile to enable credentials-based recovery via username/password.
+- User-supplied API keys are encrypted at rest in server SQLite. No passwords, keys, request bodies or contact details enter application logs.
+- Application server logs are restricted to the administrative account. Anonymous and regular profiles may view and copy only their own activity.
+- No external login, email verification, SMS verification or password-recovery service is implemented; fields are metadata, not verified contact channels.
+- Imported fonts are retained *only in the current browser* using IndexedDB. No font files are uploaded to the server.
+- The 3D model is a procedural preview, not a reconstruction of a reference photo or valid STL. Physics is a simulator prototype, not certified vehicle dynamics.
+- AI segmentation and manufacturing-ready CAD/STL remain future stages and are deliberately not exposed as working actions.
 
 ## Deployment
 
-Place `watcher-umi-lab.sh` at repo root and `UMI_LAB_UPDATE_v0.1.3.zip` in `updates/`. For `--dry-run` nothing is pushed or deployed. An actual deployment requires repository `main`, correct Git origin, access to the Ubuntu SSH target, a public DNS A/AAAA record for `umi-lab.top`, suitable administrator credentials and an interactive initial admin password for a fresh install. The installer makes a new isolated Gunicorn service, picks a free 127.0.0.1 port, writes a dedicated nginx vhost, uses Let's Encrypt only when cert paths already exist or certbot is explicitly available/configured, verifies nginx with `nginx -t`, keeps backups, and never modifies another application vhost.
+Place `UMI_LAB_UPDATE_v0.1.4.zip` inside the `updates/` folder. Watcher v0.1.2 can validate/deploy it directly; persistent SSH config already defaults to port 333. Do not put secrets or API keys in ZIP releases. Run `./watcher-umi-lab.sh --dry-run` then `./watcher-umi-lab.sh --once` to deploy once, or run without flags to watch continuously.
 
-**No environment exports needed.** The watcher defaults to `root@46.62.232.64:333` and writes persistent non-secret settings to `.umi-lab/watcher-config.json` (mode 0600). Optionally run `./watcher-umi-lab.sh --configure` once to change server details; run `--show-config` to inspect. See `docs/DEPLOY.md`.
-
-## Limits / planned expansion
-
-No automatic segmentation, photogrammetry, image-to-CAD, game physics, multi-user invite, email recovery, industrial tolerancing, paid-model cost tracking or distributed task queue in v0.1.3. No fabricated STL output is claimed.
-
-**Local validation fix:** v0.1.2 imports `requests` only on inference calls, so the macOS watcher can check provider metadata without the Flask dependencies installed. Runtime inference still requires the pinned requirements.
-
-**SSH compatibility fix (v0.1.2):** Default SSH port is 333, matching the supplied Meta Vehicle Lab watcher on the shared Ubuntu host. Override with `UMI_SSH_PORT` if SSH is moved. This is separate from the isolated Flask port selected by the installer.
-
-**Persistent configuration (v0.1.3):** Settings remain after macOS restarts. The bootstrap admin password is requested from `/dev/tty` only if the server reports no prior UMI database. Do not store passwords in repository files or JSON settings. SSH key authentication still uses the normal macOS SSH agent/keychain configuration.
+The release migration is forward-only and retains existing users, projects and assets. The deployer installs dependencies and runs Flask integration tests on Ubuntu before enabling the release. HTTPS, nginx and Gunicorn remain confined to the UMI vhost/service.

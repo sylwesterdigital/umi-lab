@@ -3,6 +3,11 @@ import base64
 import csv
 import io
 import json
+import re
+import logging
+from logging.handlers import RotatingFileHandler
+from datetime import datetime, timezone
+import sqlite3
 import os
 import secrets
 import time
@@ -40,6 +45,46 @@ app.config.update(SECRET_KEY=SESSION_KEY,MAX_CONTENT_LENGTH=12*1024*1024,
                   PERMANENT_SESSION_LIFETIME=60*60*24*14)
 store.init(DATA)
 PARTS=json.loads((ROOT/'parts.json').read_text())
+LOG_DIR=DATA/'logs';LOG_DIR.mkdir(mode=0o700,parents=True,exist_ok=True)
+SERVER_LOG=LOG_DIR/'server.jsonl'
+file_handler=RotatingFileHandler(SERVER_LOG,maxBytes=1_000_000,backupCount=3,encoding='utf-8')
+file_handler.setFormatter(logging.Formatter('%(message)s'))
+file_handler.setLevel(logging.INFO)
+app.logger.addHandler(file_handler)
+app.logger.setLevel(logging.INFO)
+
+def user_info(row):
+    if not row:return None
+    u={k:row[k] for k in ('id','username','display_name','role','bio','focus') if k in row.keys()}
+    u['avatar_url']='/api/profile/avatar' if row['avatar_file'] else None
+    if row['role']!='guest':
+        u['email']=row['email'];u['phone']=row['phone']
+    return u
+
+@app.after_request
+def audit(resp):
+    if request.path.startswith('/api/') and not request.path.startswith(('/api/logs','/api/health','/api/session')):
+        if request.method!='GET' or resp.status_code>=400:
+            actor=session.get('uid')
+            action=f'{request.method} {request.url_rule.rule if request.url_rule else "/api/unknown"}'
+            level='ERROR' if resp.status_code>=500 else 'WARN' if resp.status_code>=400 else 'INFO'
+            record={'ts':datetime.now(timezone.utc).isoformat(timespec='seconds'),
+                    'level':level,'action':action,'status':resp.status_code,
+                    'actor':actor[:8] if actor else 'visitor'}
+            # Never log request bodies, provider keys, passwords, contact data or cookies.
+            try:app.logger.info(json.dumps(record,separators=(',',':')))
+            except Exception:pass
+            if actor:
+                try:
+                    with store.connect(DATA) as conn:
+                        conn.execute('INSERT INTO events(user_id,session_id,created_at,level,action,status) VALUES(?,?,?,?,?,?)',
+                            (actor,session.get('sid',''),int(time.time()),level,action,resp.status_code))
+                        conn.execute('''DELETE FROM events WHERE id IN (
+                            SELECT id FROM events WHERE user_id=? ORDER BY id DESC LIMIT -1 OFFSET 1500)''',(actor,))
+                        conn.commit()
+                except Exception:pass
+    return resp
+
 BAD_LOGINS={}
 
 @app.after_request
@@ -50,7 +95,7 @@ def security(resp):
     resp.headers['Cache-Control']='no-store' if request.path.startswith('/api/') else 'no-cache'
     resp.headers['Content-Security-Policy']=("default-src 'self'; img-src 'self' data: blob:; "
         "script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; "
-        "connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
+        "connect-src 'self'; font-src 'self' blob: data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
     return resp
 
 @app.before_request
@@ -62,7 +107,7 @@ def guard_writes():
             from urllib.parse import urlparse
             host=urlparse(origin).netloc
             if host!=request.host:abort(403,'Invalid origin')
-        if request.endpoint not in ('login','setup') and request.headers.get('X-CSRF-Token')!=session.get('csrf'):
+        if request.endpoint not in ('login','setup') and (not session.get('csrf') or not secrets.compare_digest(request.headers.get('X-CSRF-Token',''),session['csrf'])):
             abort(403,'Invalid CSRF token')
 
 @app.errorhandler(413)
@@ -87,16 +132,17 @@ def index():return send_from_directory(str(ROOT/'frontend'),'index.html')
 def version():return send_from_directory(str(ROOT),'version.json')
 
 @app.get('/api/health')
-def health():return jsonify(ok=True,version='0.1.3',storage='sqlite',project='umi-lab')
+def health():return jsonify(ok=True,version='0.1.4',storage='sqlite',project='umi-lab')
 
 @app.get('/api/session')
 def session_info():
     if 'csrf' not in session:session['csrf']=secrets.token_urlsafe(30)
+    if 'sid' not in session:session['sid']=secrets.token_urlsafe(20)
     uid=session.get('uid')
     with store.connect(DATA) as conn:
         count=conn.execute('SELECT COUNT(*) FROM users').fetchone()[0]
-        row=conn.execute('SELECT id,username,display_name FROM users WHERE id=?',(uid,)).fetchone() if uid else None
-    return jsonify(authenticated=bool(row),user=dict(row) if row else None,
+        row=conn.execute('SELECT * FROM users WHERE id=?',(uid,)).fetchone() if uid else None
+    return jsonify(authenticated=bool(row),user=user_info(row),
                    needs_setup=(count==0 and os.environ.get('UMI_ENABLE_SETUP')=='1'),
                    csrf=session['csrf'])
 
@@ -110,7 +156,8 @@ def setup():
     with store.connect(DATA) as conn:
         if conn.execute('SELECT COUNT(*) FROM users').fetchone()[0]:abort(403,'Account already exists')
         uid=store.create_user(conn,'admin',pwd,str(body.get('name') or 'UMI Creator')[:80])
-    session.clear();session['uid']=uid;session['csrf']=secrets.token_urlsafe(30)
+    session.clear();session['uid']=uid;session['csrf']=secrets.token_urlsafe(30);session['sid']=secrets.token_urlsafe(20)
+    session.permanent=True
     return jsonify(ok=True,csrf=session['csrf'])
 
 @app.post('/api/login')
@@ -125,9 +172,58 @@ def login():
         BAD_LOGINS[ip].append(now)
         return jsonify(error='Invalid login'),401
     BAD_LOGINS.pop(ip,None)
-    session.clear();session['uid']=row['id'];session['csrf']=secrets.token_urlsafe(30)
+    session.clear();session['uid']=row['id'];session['csrf']=secrets.token_urlsafe(30);session['sid']=secrets.token_urlsafe(20)
     session.permanent=True
-    return jsonify(ok=True,csrf=session['csrf'],user={'id':row['id'],'username':row['username'],'display_name':row['display_name']})
+    return jsonify(ok=True,csrf=session['csrf'],user=user_info(row))
+
+@app.post('/api/guest')
+def guest():
+    body=request.get_json(silent=True) or {}
+    name=str(body.get('name') or '').strip()
+    if not 1<=len(name)<=80:return jsonify(error='Enter a name (1–80 characters)'),400
+    with store.connect(DATA) as conn:uid=store.create_guest(conn,name)
+    session.clear();session['uid']=uid;session['csrf']=secrets.token_urlsafe(30);session['sid']=secrets.token_urlsafe(20);session.permanent=True
+    return jsonify(ok=True,csrf=session['csrf'])
+
+
+def validate_contact(body):
+    username=str(body.get('username') or '').strip()
+    password=str(body.get('password') or '')
+    email=str(body.get('email') or '').strip().lower() or None
+    phone=str(body.get('phone') or '').strip() or None
+    if not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.-]{2,31}',username) or username.startswith('guest-') or username=='admin':
+        return None,'Username must be 3–32 letters, numbers, dots, dashes or underscores'
+    if len(password)<12 or len(password)>200:return None,'Password must be 12–200 characters'
+    if email and (len(email)>254 or not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',email)):
+        return None,'Invalid email address'
+    if phone and not re.fullmatch(r'\+[1-9][0-9]{6,14}',phone):return None,'Phone must use international +countrycode format'
+    return (username,password,email,phone),None
+
+@app.post('/api/register')
+def register():
+    body=request.get_json(silent=True) or {}
+    values,err=validate_contact(body)
+    if err:return jsonify(error=err),400
+    name=str(body.get('name') or values[0]).strip()[:80]
+    if not name:return jsonify(error='Display name required'),400
+    try:
+        with store.connect(DATA) as conn:
+            uid=store.create_user(conn,values[0],values[1],name,email=values[2],phone=values[3])
+    except sqlite3.IntegrityError:return jsonify(error='Username, email or phone already registered'),409
+    session.clear();session['uid']=uid;session['csrf']=secrets.token_urlsafe(30);session['sid']=secrets.token_urlsafe(20);session.permanent=True
+    return jsonify(ok=True,csrf=session['csrf'])
+
+@app.post('/api/account/upgrade')
+def account_upgrade():
+    if not session.get('uid'):return jsonify(error='Login required'),401
+    body=request.get_json(silent=True) or {}
+    values,err=validate_contact(body)
+    if err:return jsonify(error=err),400
+    try:
+        with store.connect(DATA) as conn:store.upgrade_guest(conn,session['uid'],*values)
+    except ValueError as exc:return jsonify(error=str(exc)),400
+    except sqlite3.IntegrityError:return jsonify(error='Username, email or phone already registered'),409
+    return jsonify(ok=True)
 
 @app.post('/api/logout')
 def logout():session.clear();return jsonify(ok=True)
@@ -144,14 +240,77 @@ def authenticated(fn):
 @authenticated
 def profile():
     with store.connect(DATA) as conn:
+        row=conn.execute('SELECT * FROM users WHERE id=?',(session['uid'],)).fetchone()
+        if not row:abort(404)
         if request.method=='PUT':
             body=request.get_json(silent=True) or {}
-            name=str(body.get('display_name','')).strip()[:80]
+            name=str(body.get('display_name',row['display_name'])).strip()[:80]
             if not name:return jsonify(error='Name required'),400
-            conn.execute('UPDATE users SET display_name=? WHERE id=?',(name,session['uid']))
+            bio=str(body.get('bio',row['bio']))[:240]
+            focus=str(body.get('focus',row['focus']))[:60]
+            conn.execute('UPDATE users SET display_name=?,bio=?,focus=? WHERE id=?',(name,bio,focus,session['uid']))
             conn.commit()
-        row=conn.execute('SELECT id,username,display_name,created_at FROM users WHERE id=?',(session['uid'],)).fetchone()
-    return jsonify(user=dict(row))
+            row=conn.execute('SELECT * FROM users WHERE id=?',(session['uid'],)).fetchone()
+    return jsonify(user=user_info(row))
+
+@app.post('/api/profile/avatar')
+@authenticated
+def avatar_upload():
+    image=request.files.get('image')
+    if not image or image.mimetype not in ('image/jpeg','image/png','image/webp'):
+        return jsonify(error='Choose a JPG, PNG or WebP avatar'),400
+    raw=image.read(3_000_001)
+    if len(raw)>3_000_000:return jsonify(error='Avatar exceeds 3 MB'),400
+    try:
+        im=Image.open(io.BytesIO(raw));im.verify();im=Image.open(io.BytesIO(raw))
+        if im.width*im.height>16_000_000:return jsonify(error='Image too large'),400
+        im=im.convert('RGB');im.thumbnail((512,512))
+        img=io.BytesIO();im.save(img,'JPEG',quality=88,optimize=True)
+    except (UnidentifiedImageError,OSError,ValueError):return jsonify(error='Invalid avatar image'),400
+    filename=store.new_id()+'.jpg'
+    with (MEDIA/filename).open('xb') as handle:handle.write(img.getvalue())
+    os.chmod(MEDIA/filename,0o600)
+    with store.connect(DATA) as conn:
+        row=conn.execute('SELECT avatar_file FROM users WHERE id=?',(session['uid'],)).fetchone()
+        old=row['avatar_file'] if row else ''
+        conn.execute('UPDATE users SET avatar_file=? WHERE id=?',(filename,session['uid']))
+        conn.commit()
+    if old:(MEDIA/old).unlink(missing_ok=True)
+    return jsonify(url='/api/profile/avatar')
+
+@app.get('/api/profile/avatar')
+@authenticated
+def avatar_get():
+    with store.connect(DATA) as conn:
+        row=conn.execute('SELECT avatar_file FROM users WHERE id=?',(session['uid'],)).fetchone()
+    if not row or not row['avatar_file']:abort(404)
+    return send_from_directory(str(MEDIA),row['avatar_file'],mimetype='image/jpeg',max_age=0)
+
+@app.get('/api/logs')
+@authenticated
+def logs():
+    scope=request.args.get('scope','session')
+    try:limit=min(300,max(1,int(request.args.get('limit','160'))))
+    except ValueError:limit=160
+    with store.connect(DATA) as conn:
+        user=conn.execute('SELECT role FROM users WHERE id=?',(session['uid'],)).fetchone()
+        if not user:abort(404)
+        if scope=='session':
+            rows=conn.execute('''SELECT created_at,level,action,status FROM events
+                WHERE user_id=? AND session_id=? ORDER BY id DESC LIMIT ?''',(session['uid'],session.get('sid',''),limit)).fetchall()
+            entries=[{'time':datetime.fromtimestamp(r['created_at'],timezone.utc).isoformat(),
+                      'level':r['level'],'event':r['action'],'status':r['status']} for r in reversed(rows)]
+            return jsonify(scope='session',entries=entries)
+    if scope!='server':return jsonify(error='Unknown log scope'),400
+    if user['role']!='admin':abort(403,'Server logs are available to administrators only')
+    # Only the dedicated UMI application log; no system-wide journal or secrets.
+    try:
+        from collections import deque
+        with SERVER_LOG.open('r',encoding='utf-8',errors='replace') as handle:
+            lines=deque(handle,maxlen=limit)
+        entries=[json.loads(line) for line in lines if line.strip()]
+    except (OSError,ValueError):entries=[]
+    return jsonify(scope='server',entries=entries)
 
 @app.get('/api/providers')
 @authenticated
@@ -379,7 +538,7 @@ def make_manifest(row):
                 'status':'concept','mask':None,'mesh':None,'cad':None,'material':None,
                 'dimensions_mm':None,'tolerance_mm':None,'printable':False,
                 'attachment_points':[],'confidence':None})
-    return {'schema':'umi.manifest/1.0','version':'0.1.3','project':{'id':row['id'],'name':row['name'],
+    return {'schema':'umi.manifest/1.0','version':'0.1.4','project':{'id':row['id'],'name':row['name'],
       'prompt':row['prompt'],'kind':row['kind'],'selected_asset':row['selected_asset']},
       'units':'mm','coordinates':PARTS['coordinate_system'],'design_settings':settings,
       'stages':{'reference':'available' if row['selected_asset'] else 'missing',
@@ -411,7 +570,7 @@ def export(pid):
         for part in manifest['parts']:
             writer.writerow([part['id'],part['label'],part['assembly'],part['status'],'false'])
         z.writestr('bom.csv',out.getvalue())
-        z.writestr('README.txt','UMI LAB concept export v0.1.3\nImages and BOM are design references, not CAD/STL files.\nAll dimensions, interfaces and tolerances require validation.\n')
+        z.writestr('README.txt','UMI LAB concept export v0.1.4\nImages and BOM are design references, not CAD/STL files.\nAll dimensions, interfaces and tolerances require validation.\n')
         for a in assets:
             filename=a['filename']
             if (MEDIA/filename).is_file():z.write(MEDIA/filename,'references/'+filename)

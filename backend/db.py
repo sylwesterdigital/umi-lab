@@ -52,7 +52,26 @@ def init(data_dir):
         );
         CREATE INDEX IF NOT EXISTS idx_messages_project ON messages(project_id,created_at);
         CREATE INDEX IF NOT EXISTS idx_assets_project ON assets(project_id,created_at);
+        CREATE TABLE IF NOT EXISTS events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id TEXT NOT NULL, session_id TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL,
+          level TEXT NOT NULL, action TEXT NOT NULL, status INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_events_user ON events(user_id,id);
         ''')
+        columns={r['name'] for r in db.execute('PRAGMA table_info(users)')}
+        for name,definition in {
+            'role':"TEXT NOT NULL DEFAULT 'user'", 'email':'TEXT', 'phone':'TEXT',
+            'bio':"TEXT NOT NULL DEFAULT ''", 'focus':"TEXT NOT NULL DEFAULT ''",
+            'avatar_file':"TEXT NOT NULL DEFAULT ''"
+        }.items():
+            if name not in columns:db.execute(f'ALTER TABLE users ADD COLUMN {name} {definition}')
+        db.execute("UPDATE users SET role='admin' WHERE username='admin' AND role='user'")
+        event_columns={r['name'] for r in db.execute('PRAGMA table_info(events)')}
+        if 'session_id' not in event_columns:db.execute("ALTER TABLE events ADD COLUMN session_id TEXT NOT NULL DEFAULT ''")
+        db.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_user_email ON users(email) WHERE email IS NOT NULL')
+        db.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_user_phone ON users(phone) WHERE phone IS NOT NULL')
+        db.commit()
 
 
 def new_id():
@@ -74,18 +93,36 @@ def verify_password(password, encoded):
     except (ValueError,TypeError):return False
 
 
-def create_user(db, username, password, display_name):
+def create_user(db, username, password, display_name, *, email=None, phone=None):
     if len(password) < 12:
         raise ValueError('Password must be at least 12 characters')
     uid = new_id()
-    db.execute('INSERT INTO users VALUES(?,?,?,?,?)',
-               (uid, username, password_hash(password),display_name,int(time.time())))
+    db.execute('''INSERT INTO users(id,username,password_hash,display_name,created_at,email,phone)
+        VALUES(?,?,?,?,?,?,?)''',
+        (uid, username, password_hash(password),display_name,int(time.time()),email,phone))
     db.commit()
     return uid
 
 
+def create_guest(db, display_name):
+    uid=new_id()
+    db.execute('''INSERT INTO users(id,username,password_hash,display_name,created_at,role)
+        VALUES(?,?,?,?,?,?)''', (uid,'guest-'+uid[:20],'!guest',display_name[:80],int(time.time()),'guest'))
+    db.commit()
+    return uid
+
+
+def upgrade_guest(db, uid, username, password, email=None, phone=None):
+    if len(password)<12:raise ValueError('Password must be at least 12 characters')
+    row=db.execute("SELECT role FROM users WHERE id=?",(uid,)).fetchone()
+    if not row or row['role']!='guest':raise ValueError('Guest profile required')
+    db.execute('''UPDATE users SET username=?,password_hash=?,role='user',email=?,phone=?
+        WHERE id=?''',(username,password_hash(password),email,phone,uid))
+    db.commit()
+
+
 def authenticate(db, username, password):
-    row = db.execute('SELECT * FROM users WHERE username=?', (username,)).fetchone()
+    row = db.execute("SELECT * FROM users WHERE (username=? OR email=?) AND role!='guest'", (username,username)).fetchone()
     return row if row and verify_password(password,row['password_hash']) else None
 
 
