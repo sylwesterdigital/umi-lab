@@ -105,7 +105,7 @@ function openPreview(index){if(!state.assets.length)return;state.previewIndex=(i
 function closePreview(){$('#imagePreview').hidden=true;$('#previewImage').removeAttribute('src');}
 function restoreImageOptions(){try{const key='umi.image-options.'+state.project?.id;const options=JSON.parse(localStorage.getItem(key)||'{}');$('#galleryAction').value=options.mode||'sheet';$('#galleryInstructions').value=options.instructions||'';$('#gallerySystem').value=options.system_id||'';$('#galleryPart').value=options.part_name||'';}catch(e){$('#galleryAction').value='sheet';$('#galleryInstructions').value='';$('#gallerySystem').value='';$('#galleryPart').value='';}updateGalleryModeUI();}
 function saveImageOptions(){if(!state.project)return;try{localStorage.setItem('umi.image-options.'+state.project.id,JSON.stringify({mode:$('#galleryAction').value,instructions:$('#galleryInstructions').value,system_id:$('#gallerySystem').value,part_name:$('#galleryPart').value.trim()}));}catch(e){}}
-function updateGalleryModeUI(){const mode=$('#galleryAction').value;const system=mode==='system';const part=mode==='part';$('#gallerySystem').hidden=!system;$('#galleryPart').hidden=!part;$('#galleryInstructions').placeholder=mode==='annotate'?'Label visible systems and major parts (optional)':mode==='system'?'Focus instructions for the chosen system (optional)':mode==='part'?'Construction notes for the isolated part (optional)':'Refine style or details (optional)';$('#galleryBody').classList.toggle('compact-parts',system||part);}
+function updateGalleryModeUI(){const mode=$('#galleryAction').value;const system=mode==='system';const part=mode==='part'||mode==='segment';$('#gallerySystem').hidden=!system;$('#galleryPart').hidden=!part;$('#galleryImageModel').hidden=mode==='segment'||!state.providers.some(p=>p.images&&isConfigured(p));$('#galleryInstructions').placeholder=mode==='annotate'?'Label visible systems and major parts (optional)':mode==='system'?'Focus instructions for the chosen system (optional)':mode==='segment'?'One visible part per request · one selected reference':mode==='part'?'Construction notes for the isolated part (optional)':'Refine style or details (optional)';$('#galleryBody').classList.toggle('compact-parts',system||part);}
 function enableGalleryDrag(){const box=$('#galleryPane'),handle=$('#galleryHandle'),corner=$('#galleryResize');
  function begin(ev,resizing){if(ev.button!==0||ev.target.closest('button,select,input'))return;ev.preventDefault();const bounds=box.getBoundingClientRect();const pointer=resizing?corner:handle;
  const snapshot={x:ev.clientX,y:ev.clientY,left:bounds.left,top:bounds.top,width:bounds.width,height:bounds.height};pointer.setPointerCapture(ev.pointerId);
@@ -151,6 +151,20 @@ async function generateConcepts(options={}){
  const automatic=!!options.automatic;
  return withSession(async()=>{
   if(!state.project)await createProject($('#promptInput').value);
+  if(!automatic&&$('#galleryAction').value==='segment'){
+   const meta=state.providers.find(p=>p.id==='meta');
+   if(!meta||!isConfigured(meta)){openSettings('models');toast('Connect Meta Muse first for SAM 3.1',true);return false;}
+   const noun=$('#galleryPart').value.trim();const ids=selectedReferenceIds();
+   if(!noun||noun.split(/\s+/).length>12){toast('Enter one short part name, e.g. front bumper',true);return false;}
+   if(ids.length!==1){toast('Select exactly one image for segmentation',true);return false;}
+   if(state.generating)return false;state.generating=true;const button=$('#generateButton');setBusy(button,true,'Segmenting…');
+   activity('Segmenting '+noun, 'Meta / SAM 3.1');
+   try{const result=await api('segments/generate',{method:'POST',json:{project_id:state.project.id,asset_id:ids[0],noun,temp_provider:tempConfig('meta')}});
+     await openProject(state.project.id);toggleGallery(true);activity(`SAM: ${result.matches} match(es) · ${result.masks} mask(s) stored`, 'Meta / SAM 3.1',true);
+     toast(`SAM 3.1 · ${result.matches} match(es) · mask data in Export kit`);return true;
+   }catch(e){activity(e.message,'Meta / SAM 3.1',false,true);toast('Segmentation: '+e.message,true);return false;}
+   finally{setBusy(button,false);state.generating=false;}
+  }
   const choices=state.providers.filter(p=>p.images&&isConfigured(p));const select=automatic?$('#imageProviderSelect'):$('#galleryImageModel');
   const preferred=choices.find(p=>p.id===select.value)||choices[0];
   if(!preferred){openSettings('models');toast('Connect an image provider first',true);return false;}
@@ -205,12 +219,14 @@ function renderProviderEditor(){
  const form=document.createElement('form');form.className='provider-fields-compact';form.autocomplete='off';
  const mesh=p.mesh3d;form.innerHTML=`<div class="provider-title"><strong>${esc(p.name)}</strong><button type="button" role="switch" class="switch ${connected?'on':''}" aria-checked="${connected}" title="Enable or disable this provider"><i></i></button></div>
  <div class="provider-status">${connected?(tmp.enabled?'Temporary · this tab':'Saved on server'):'Not connected'} · ${mesh?'3D':p.images?'Chat / images':'Chat'}</div>
- <label>${mesh?'3D model':'Chat model'}<input class="provider-model" value="${esc(tmp.model??p.model??'')}" maxlength="180"></label>
- ${p.images?`<label>Image model<input class="provider-image" value="${esc(tmp.image_model??p.image_model??'')}" maxlength="180"></label>`:''}
+ <label>${mesh?'3D model':'Chat model'}<input class="provider-model" ${p.chat_models?'list=\"chatModels\"':''} value="${esc(tmp.model??p.model??'')}" maxlength="180"></label>
+ ${p.chat_models?`<datalist id=\"chatModels\">${p.chat_models.map(name=>`<option value=\"${esc(name)}\">`).join('')}</datalist>`:''}
+ ${p.images?`<label>Image model<input class="provider-image" ${p.image_models?'list=\"imageModels\"':''} value="${esc(tmp.image_model??p.image_model??'')}" maxlength="180"></label>${p.image_models?`<datalist id=\"imageModels\">${p.image_models.map(name=>`<option value=\"${esc(name)}\">`).join('')}</datalist>`:''}`:''}
+ ${p.segmentation?'<div class=\"provider-status\">SAM 3.1 · Segment part via Concepts workflow</div>':''}
  <label>API endpoint<input class="provider-url" value="${esc(tmp.base_url??p.base_url??'')}" maxlength="300"></label>
  <label>API key<input class="provider-key" type="password" autocomplete="new-password" placeholder="${tmp.api_key?'Temporary key loaded':p.has_key?'Encrypted key stored':'Paste key (not shown)'}"></label>
  <div class="provider-controls"><button type="button" class="test-provider">Test API / balance</button><button type="button" class="temp-provider">Keep in tab</button><button type="submit" class="save-provider">Save on server</button><button type="button" class="clear-provider">Clear</button></div>
- <div class="provider-note" aria-live="polite">Temporary keys stay in this browser tab. Saved keys are encrypted on the server. Balance is displayed only when the provider supports a non-billable check.</div>`;
+ <div class="provider-note" aria-live="polite">${esc(p.access_note||'Temporary keys stay in this browser tab. Saved keys are encrypted on the server. Balance is displayed only when supported.')}</div>`;
  const field=key=>form.querySelector('.provider-'+key);
  const config=()=>({enabled:true,model:field('model').value.trim(),image_model:field('image')?.value.trim()||'',base_url:field('url').value.trim(),api_key:field('key').value||tmp.api_key||''});
  const status=message=>form.querySelector('.provider-note').textContent=message;

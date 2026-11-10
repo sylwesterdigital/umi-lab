@@ -6,6 +6,27 @@ from backend.providers import PRESETS, generate_image, ProviderError
 
 class ProviderImageReferenceTests(unittest.TestCase):
     def preset(self,name):return next(p for p in PRESETS if p['id']==name)
+    def test_meta_muse_image_edit_uses_reference_images(self):
+        preset=self.preset('meta')
+        result={'data':[{'b64_json':base64.b64encode(b'png').decode()}]}
+        with patch('backend.providers._post',return_value=result) as call:
+            image,mime=generate_image(preset,preset,'key','Maintain vehicle design',[(b'a','image/png'),(b'b','image/jpeg')])
+        self.assertEqual(image,b'png')
+        self.assertEqual(mime,'image/png')
+        url,_,payload=call.call_args.args
+        self.assertEqual(url,'https://api.meta.ai/v1/images/edits')
+        self.assertEqual(payload['model'],'muse-image-1.0')
+        self.assertEqual(len(payload['images']),2)
+        self.assertEqual(payload['images'][0]['image_url'],'data:image/png;base64,YQ==')
+
+    def test_meta_muse_image_generation(self):
+        preset=self.preset('meta')
+        result={'data':[{'b64_json':base64.b64encode(b'png').decode()}]}
+        with patch('backend.providers._post',return_value=result) as call:
+            generate_image(preset,preset,'key','Futuristic car')
+        self.assertEqual(call.call_args.args[0],'https://api.meta.ai/v1/images/generations')
+        self.assertEqual(call.call_args.args[2]['model'],'muse-image-1.0')
+
     def test_xai_single_reference_uses_edits(self):
         p=self.preset('xai');sample=b'fake-jpeg'
         result={'data':[{'b64_json':base64.b64encode(b'generated-image').decode()}]}

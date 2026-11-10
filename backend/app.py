@@ -21,6 +21,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from flask import Flask, abort, jsonify, request, send_file, send_from_directory, session
 from . import db as store
 from .providers import PRESETS, BY_ID, ProviderError, chat as provider_chat, generate_image, safe_base_url, check_api
+from .meta_sam import segment_image
 
 ROOT=Path(__file__).resolve().parent.parent
 # Release metadata is the single source of truth for every API/version export.
@@ -703,6 +704,76 @@ def concepts():
                    images_created=1,mode=mode,reference_count=len(references),model=model,elapsed_ms=elapsed_ms,system_id=system_id or None,part_name=part_name or None)
 
 
+@app.post('/api/segments/generate')
+@authenticated
+def generate_segmentation():
+    body=request.get_json(silent=True) or {}
+    pid=str(body.get('project_id') or '')
+    aid=str(body.get('asset_id') or '')
+    noun=str(body.get('noun') or '').strip()[:90]
+    if not aid:return jsonify(error='Select one reference image'),400
+    if not noun or len(noun.split())>12:return jsonify(error='Enter one short part noun phrase'),400
+    with store.connect(DATA) as conn:
+        project=store.project_for(conn,session['uid'],pid)
+        if not project:abort(404)
+        asset=conn.execute('SELECT filename,mime FROM assets WHERE id=? AND project_id=?',(aid,pid)).fetchone()
+        if not asset:return jsonify(error='Selected image not found in project'),400
+        try:preset,config,key=get_provider(conn,'meta',body.get('temp_provider'))
+        except ProviderError as exc:return jsonify(error=str(exc)),400
+        original=(MEDIA/asset['filename']).read_bytes()
+        started=time.monotonic()
+        inference_event(conn,'segment','meta','sam-3.1','started',102,0,1)
+        try:
+            segmented=segment_image(preset,config,key,original,asset['mime'],noun)
+            # Visualization is explicitly boxes, not a false claim of mask rasterization.
+            from PIL import ImageDraw,ImageFont
+            canvas=Image.open(io.BytesIO(original)).convert('RGB')
+            pen=ImageDraw.Draw(canvas)
+            for idx,obj in enumerate(segmented['objects']):
+                pen.rectangle(obj['box'],outline='#28d7b5',width=max(2,canvas.width//300))
+                pen.text((obj['box'][0]+3,max(1,obj['box'][1]-18)),f'{noun} {idx+1}',fill='#28d7b5')
+            picture=io.BytesIO();canvas.save(picture,'PNG')
+            generated_id,err=save_asset(conn,pid,picture.getvalue(),'image/png','sam_box_preview','meta:sam-3.1')
+            if err:raise ProviderError(err)
+            if project['selected_asset']:
+                conn.execute('UPDATE projects SET selected_asset=? WHERE id=?',(project['selected_asset'],pid))
+            run_id=store.new_id()
+            folder=DATA/'segmentations';folder.mkdir(mode=0o700,exist_ok=True)
+            data={'schema':'umi.segmentation/1.0','project_id':pid,'source_asset':aid,'preview_asset':generated_id,
+                  'created_at':int(time.time()),**segmented}
+            target=folder/(run_id+'.json')
+            with target.open('x',encoding='utf-8') as output:json.dump(data,output)
+            target.chmod(0o600)
+            settings=json.loads(project['settings'])
+            runs=settings.setdefault('parts_workflow',{}).setdefault('sam_runs',[])
+            runs.append({'id':run_id,'noun':noun,'source_asset':aid,'preview_asset':generated_id,
+                         'matches':segmented['count'],'masks':segmented['mask_count'],'model':'sam-3.1'})
+            conn.execute('UPDATE projects SET settings=?,updated_at=? WHERE id=?',
+                         (json.dumps(settings),int(time.time()),pid))
+            conn.commit()
+            elapsed=round((time.monotonic()-started)*1000)
+            inference_event(conn,'segment','meta','sam-3.1','completed',200,elapsed,1)
+        except (ProviderError,ValueError,OSError) as exc:
+            inference_event(conn,'segment','meta','sam-3.1','failed',502,round((time.monotonic()-started)*1000),1)
+            return jsonify(error=str(exc)),502
+    return jsonify(id=run_id,model='sam-3.1',matches=segmented['count'],masks=segmented['mask_count'],
+                   preview={'id':generated_id,'url':'/api/media/'+generated_id,'view':'sam_box_preview'},
+                   data_url=f'/api/projects/{pid}/segmentation/{run_id}',elapsed_ms=elapsed)
+
+@app.get('/api/projects/<pid>/segmentation/<run_id>')
+@authenticated
+def segmentation_data(pid,run_id):
+    if not re.fullmatch(r'[a-f0-9]{32}',run_id):abort(404)
+    with store.connect(DATA) as conn:
+        row=store.project_for(conn,session['uid'],pid)
+        if not row:abort(404)
+        records=json.loads(row['settings']).get('parts_workflow',{}).get('sam_runs',[])
+        if not any(r.get('id')==run_id for r in records):abort(404)
+    target=DATA/'segmentations'/(run_id+'.json')
+    if not target.is_file():abort(404)
+    return send_file(target,mimetype='application/json',as_attachment=True,download_name='UMI_SAM_'+run_id[:8]+'.json')
+
+
 def make_manifest(row):
     settings=json.loads(row['settings'])
     workflow=settings.get('parts_workflow',{})
@@ -721,9 +792,9 @@ def make_manifest(row):
     return {'schema':'umi.manifest/1.0','version':RELEASE_VERSION,'project':{'id':row['id'],'name':row['name'],
       'prompt':row['prompt'],'kind':row['kind'],'selected_asset':row['selected_asset']},
       'units':'mm','coordinates':PARTS['coordinate_system'],'design_settings':settings,
-      'parts_workflow':{'annotated_assets':workflow.get('annotated_assets',[]),'system_sheets':system_sheets,'part_sheets':part_sheets,'source_references':workflow.get('dissection_source_ids',[])},
+      'parts_workflow':{'annotated_assets':workflow.get('annotated_assets',[]),'system_sheets':system_sheets,'part_sheets':part_sheets,'source_references':workflow.get('dissection_source_ids',[]),'sam_runs':workflow.get('sam_runs',[])},
       'stages':{'reference':'available' if row['selected_asset'] else 'missing',
-                'segmentation':'annotated' if workflow.get('annotated_assets') else 'not_run',
+                'segmentation':'sam_masks_available' if workflow.get('sam_runs') else 'annotated' if workflow.get('annotated_assets') else 'not_run',
                 'multiview':'available' if settings.get('last_generation',{}).get('mode')=='sheet' else 'not_reconciled',
                 'mesh':'not_generated','cad':'not_generated','manufacturing':'not_validated'},
       'part_count':len(parts),'parts':parts,'manufacturing_ready':False,
@@ -753,6 +824,11 @@ def export(pid):
             writer.writerow([part['id'],part['label'],part['assembly'],part['status'],'false'])
         z.writestr('bom.csv',out.getvalue())
         z.writestr('README.txt',f'UMI LAB concept export v{RELEASE_VERSION}\nImages and BOM are design references, not CAD/STL files.\nAll dimensions, interfaces and tolerances require validation.\n')
+        for run in manifest.get('parts_workflow',{}).get('sam_runs',[]):
+            rid=run.get('id','')
+            if re.fullmatch(r'[a-f0-9]{32}',rid):
+                seg=DATA/'segmentations'/(rid+'.json')
+                if seg.is_file():z.write(seg,'segmentations/'+rid+'.json')
         for a in assets:
             filename=a['filename']
             if (MEDIA/filename).is_file():z.write(MEDIA/filename,'references/'+filename)

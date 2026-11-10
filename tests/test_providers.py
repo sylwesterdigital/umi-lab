@@ -13,7 +13,7 @@ class ProvidersTest(unittest.TestCase):
     def test_presets_unique_and_have_protocol(self):
         self.assertGreaterEqual(len(PRESETS),15)
         self.assertEqual(len(set(p['id'] for p in PRESETS)),len(PRESETS))
-        self.assertEqual({p['id'] for p in PRESETS if p['images']},{'openai','xai','gemini'})
+        self.assertEqual({p['id'] for p in PRESETS if p['images']},{'openai','xai','gemini','meta'})
     def test_preset_import_without_third_party_dependencies(self):
         # A fresh macOS Python needs no pip install to verify the release.
         # -S prevents site-packages from being imported, even if installed.

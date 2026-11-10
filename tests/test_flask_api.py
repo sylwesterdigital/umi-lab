@@ -158,6 +158,36 @@ class FlaskTest(unittest.TestCase):
         exported=self.client.get(f'/api/projects/{pid}/export')
         self.assertEqual(exported.status_code,200)
 
+    def test_meta_sam_authenticated_segmentation_export(self):
+        from unittest.mock import patch
+        pid=self.post('/api/projects',{'name':'Muse test vehicle'}).json['id']
+        image=Image.new('RGB',(120,90),'gray');buf=io.BytesIO();image.save(buf,'PNG');buf.seek(0)
+        uploaded=self.client.post('/api/assets/upload',data={'project_id':pid,'image':(buf,'car.png')},
+            headers={'X-CSRF-Token':self.csrf},content_type='multipart/form-data')
+        self.assertEqual(uploaded.status_code,201,uploaded.json)
+        aid=uploaded.json['id']
+        saved=self.client.put('/api/providers/meta',json={'enabled':True,'api_key':'test-key','model':'muse-spark-1.3',
+            'image_model':'muse-image-1.0','base_url':'https://api.meta.ai/v1'},headers={'X-CSRF-Token':self.csrf})
+        self.assertEqual(saved.status_code,200,saved.json)
+        mock_result={'model':'sam-3.1','noun':'front bumper','completed':True,'count':1,'mask_count':1,
+                     'objects':[{'id':'0','box':[5,5,40,35],'size':[120,90],'confidence':None,
+                                'mask_token':'<|mask;x=0;y=0;data=30,36,!encoded|>'}]}
+        with patch.object(self.module,'segment_image',return_value=mock_result) as infer:
+            out=self.post('/api/segments/generate',{'project_id':pid,'asset_id':aid,'noun':'front bumper'})
+        self.assertEqual(out.status_code,200,out.json)
+        self.assertEqual(out.json['matches'],1)
+        self.assertEqual(out.json['masks'],1)
+        self.assertEqual(infer.call_count,1)
+        self.assertEqual(self.client.get(out.json['data_url']).status_code,200)
+        manifest=self.client.get(f'/api/projects/{pid}/manifest').json
+        self.assertEqual(manifest['stages']['segmentation'],'sam_masks_available')
+        self.assertEqual(len(manifest['parts_workflow']['sam_runs']),1)
+        bundle=self.client.get(f'/api/projects/{pid}/export')
+        self.assertEqual(bundle.status_code,200)
+        import zipfile
+        with zipfile.ZipFile(io.BytesIO(bundle.data)) as archive:
+            self.assertTrue(any(p.startswith('segmentations/') for p in archive.namelist()))
+
     def test_chat_offline_and_login(self):
         pid=self.post('/api/projects',{'name':'Car'}).json['id']
         response=self.post('/api/chat',{'project_id':pid,'message':'A red supercar'})

@@ -7,6 +7,10 @@ from urllib.parse import urlparse
 
 # Presets are editable; model names are examples, not an exhaustive list.
 PRESETS = [
+ {'id':'meta','name':'Meta Muse / Model API','protocol':'openai','base_url':'https://api.meta.ai/v1','model':'muse-spark-1.3','image_model':'muse-image-1.0','images':True,'segmentation':True,'segmentation_model':'sam-3.1',
+  'chat_models':['muse-wonder-1.0','muse-ember-1.0','muse-spark-1.3','muse-spark-1.3-contributor','muse-spark-1.2','muse-spark-1.2-contributor','muse-spark-1.1'],
+  'image_models':['muse-image-1.0'],
+  'access_note':'Wonder Full: Muse Code subscription only. Contributor Spark: discounted, input/output may train Meta models. Spark Open and Glimmer: self-hosted. Muse Voice Transcribe: audio API, not yet enabled in this UI.'},
  {'id':'openai','name':'OpenAI','protocol':'openai','base_url':'https://api.openai.com/v1','model':'gpt-4.1-mini','image_model':'gpt-image-2.5-flare','images':True},
  {'id':'xai','name':'xAI / Grok','protocol':'openai','base_url':'https://api.x.ai/v1','model':'grok-4.7','image_model':'grok-imagine-image-2.0','images':True},
  {'id':'gemini','name':'Google Gemini','protocol':'gemini','base_url':'https://generativelanguage.googleapis.com/v1beta','model':'gemini-2.5-flash','image_model':'gemini-3.1-flash-image','images':True},
@@ -128,6 +132,7 @@ def generate_image(preset, config, key, prompt, reference_images=None):
     payload={'model':model,'prompt':prompt,'n':1}
     endpoint=base+'/images/generations'
     if preset['id']=='xai':payload.update({'response_format':'b64_json','aspect_ratio':'3:2'})
+    if preset['id']=='meta':payload.update({'response_format':'b64_json','output_format':'png'})
     if references:
         # Use actual image-edit endpoints; never silently discard selected references.
         endpoint=base+'/images/edits'
@@ -136,6 +141,8 @@ def generate_image(preset, config, key, prompt, reference_images=None):
             payload={'model':model,'prompt':prompt,'response_format':'b64_json','aspect_ratio':'3:2'}
             if len(refs)==1:payload['image']={'url':refs[0],'type':'image_url'}
             else:payload['images']=[{'url':uri,'type':'image_url'} for uri in refs]
+        elif preset['id']=='meta':
+            payload={'model':model,'prompt':prompt,'images':[{'image_url':uri} for uri in refs],'n':1,'response_format':'b64_json','output_format':'png'}
         elif preset['id']=='openai':
             payload={'model':model,'prompt':prompt,'images':[{'image_url':uri} for uri in refs],'n':1}
             if model.startswith('gpt-image-1.5'):payload['input_fidelity']='high'

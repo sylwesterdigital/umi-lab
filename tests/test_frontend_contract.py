@@ -41,6 +41,8 @@ class FrontendContractTests(unittest.TestCase):
         self.assertIn("mode=automatic?'front_3q':",js)
         self.assertIn('enableGalleryDrag',js)
         self.assertIn('updateGalleryModeUI',js)
+        self.assertIn('Segment part · Meta SAM 3.1',page)
+        self.assertIn('segments/generate',js)
         self.assertIn("mode==='annotate'",js)
         self.assertIn("system_id:systemID",js)
         self.assertIn("part_name:partName",js)
