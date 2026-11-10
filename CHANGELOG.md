@@ -1,3 +1,11 @@
+# v0.1.6 — 2026-11-10
+- Fix CSP by hashing the embedded Three.js import map; avoid unsafe-inline.
+- Fix Settings Models/Appearance/Profile navigation and password-form browser warnings.
+- Compact API provider selector with connection check, credit balance where documented, browser-tab-only keys, encrypted server keys, and clear.
+- Add Tripo, AHOLO, Meshy provider configuration and non-billable API verification.
+- Contextual model selection with browser-local preferences; auto-generate a concept image for a submitted vehicle prompt when enabled.
+- Gallery uses real image elements; same-origin image markdown in conversation renders as images.
+
 # UMI LAB changelog
 
 ## 0.1.5 — Administrator provisioning and secure logs

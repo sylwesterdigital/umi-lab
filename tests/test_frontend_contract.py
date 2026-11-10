@@ -17,6 +17,26 @@ class FrontendContractTests(unittest.TestCase):
         self.assertIn('id="logWindow" class="log-window" hidden',page)
         self.assertIn('id="authOverlay" class="auth-overlay" hidden',page)
 
+    def test_browser_csp_and_settings_contract(self):
+        import base64,hashlib
+        page=(BASE/'frontend/index.html').read_text()
+        js=(BASE/'frontend/js/app.js').read_text()
+        backend=(BASE/'backend/app.py').read_text()
+        match=re.search(r'<script type="importmap">(.*?)</script>',page,re.S)
+        self.assertIsNotNone(match)
+        hashed=base64.b64encode(hashlib.sha256(match.group(1).encode()).digest()).decode()
+        self.assertIn('sha256-'+hashed,backend)
+        self.assertNotIn('unsafe-inline',backend.split('script-src')[1].split(';')[0])
+        self.assertIn('id="modelsSettings"',page)
+        self.assertIn("$('#'+name+'Settings')",js)
+        self.assertNotIn('id="modelSettings"',page)
+        self.assertIn('id="providerSelect"',page)
+        self.assertIn('id="providerEditor"',page)
+        self.assertNotIn('id="providerList"',page)
+        self.assertIn("form.className='provider-fields-compact'",js)
+        self.assertIn('temp_provider:tempConfig',js)
+        self.assertIn('view_count:automatic?1:4',js)
+
     def test_real_physics_and_logs_controls(self):
         page=(BASE/'frontend/index.html').read_text()
         viewer=(BASE/'frontend/js/viewer.js').read_text()

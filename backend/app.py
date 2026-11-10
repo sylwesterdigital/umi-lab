@@ -1,5 +1,6 @@
-"""UMI LAB v0.1.5: authenticated Flask API and single-page studio."""
+"""UMI LAB v0.1.6: authenticated Flask API and single-page studio."""
 import base64
+import hashlib
 import csv
 import io
 import json
@@ -19,7 +20,7 @@ from PIL import Image, UnidentifiedImageError
 from cryptography.fernet import Fernet, InvalidToken
 from flask import Flask, abort, jsonify, request, send_file, send_from_directory, session
 from . import db as store
-from .providers import PRESETS, BY_ID, ProviderError, chat as provider_chat, generate_image, safe_base_url
+from .providers import PRESETS, BY_ID, ProviderError, chat as provider_chat, generate_image, safe_base_url, check_api
 
 ROOT=Path(__file__).resolve().parent.parent
 DATA=Path(os.environ.get('UMI_DATA_DIR', str(ROOT/'.umi-data'))).resolve()
@@ -94,7 +95,7 @@ def security(resp):
     resp.headers['X-Frame-Options']='DENY'
     resp.headers['Cache-Control']='no-store' if request.path.startswith('/api/') else 'no-cache'
     resp.headers['Content-Security-Policy']=("default-src 'self'; img-src 'self' data: blob:; "
-        "script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; "
+        "script-src 'self' https://cdn.jsdelivr.net 'sha256-V5W/S/ezCmFEoq8zylsgcbGgPNc2njwXvX8NL5xHP7g='; style-src 'self' 'unsafe-inline'; "
         "connect-src 'self'; font-src 'self' blob: data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
     return resp
 
@@ -353,16 +354,44 @@ def provider_save(provider_id):
     return jsonify(ok=True,has_key=bool(encrypted))
 
 
-def get_provider(conn,provider_id):
+
+@app.post('/api/providers/<provider_id>/check')
+@authenticated
+def provider_check(provider_id):
+    preset=BY_ID.get(provider_id)
+    if not preset:abort(404)
+    body=request.get_json(silent=True) or {}
+    with store.connect(DATA) as conn:
+        saved=conn.execute('SELECT * FROM providers WHERE user_id=? AND id=?',(session['uid'],provider_id)).fetchone()
+    config=dict(saved) if saved else dict(preset)
+    for name in ('model','image_model','base_url'):
+        if name in body and isinstance(body[name],str):config[name]=body[name].strip()[:300]
+    key=str(body.get('api_key') or '')[:4000]
+    if not key and saved and saved['encrypted_key']:
+        try:key=CRYPT.decrypt(saved['encrypted_key'].encode()).decode()
+        except InvalidToken:return jsonify(error='Saved credential cannot be decrypted'),400
+    try:result=check_api(preset,config,key)
+    except ProviderError as exc:return jsonify(error=str(exc)),400
+    return jsonify(result)
+
+
+def get_provider(conn,provider_id,temp=None):
     preset=BY_ID.get(provider_id)
     if not preset:raise ProviderError('Unknown model provider')
     row=conn.execute('SELECT * FROM providers WHERE user_id=? AND id=?',(session['uid'],provider_id)).fetchone()
-    if not row or not row['enabled']:raise ProviderError('Enable this provider in Model Settings')
+    temp=temp if isinstance(temp,dict) else None
+    if not (row and row['enabled']) and not (temp and temp.get('enabled')):
+        raise ProviderError('Enable this provider in Settings')
     key=''
-    if row['encrypted_key']:
+    if row and row['encrypted_key']:
         try:key=CRYPT.decrypt(row['encrypted_key'].encode()).decode()
         except InvalidToken as exc:raise ProviderError('Encrypted key unavailable; re-enter key') from exc
-    return preset,dict(row),key
+    config=dict(row) if row else dict(preset)
+    if temp and temp.get('enabled'):
+        for field in ('model','image_model','base_url'):
+            if field in temp and isinstance(temp[field],str):config[field]=temp[field].strip()[:300]
+        key=str(temp.get('api_key') or key)[:4000]
+    return preset,config,key
 
 @app.route('/api/projects',methods=['GET','POST'])
 @authenticated
@@ -426,7 +455,7 @@ def converse():
         selected=str(body.get('provider_id') or '')
         if selected:
             try:
-                preset,config,key=get_provider(conn,selected)
+                preset,config,key=get_provider(conn,selected,body.get('temp_provider'))
                 history=[{'role':x['role'],'content':x['content']} for x in conn.execute('''
                     SELECT role,content FROM (SELECT rowid,role,content FROM messages WHERE project_id=?
                     ORDER BY rowid DESC LIMIT 16) ORDER BY rowid ASC''',(pid,))]
@@ -503,12 +532,12 @@ def concepts():
     with store.connect(DATA) as conn:
         row=store.project_for(conn,session['uid'],pid)
         if not row:abort(404)
-        try:preset,config,key=get_provider(conn,provider_id)
+        try:preset,config,key=get_provider(conn,provider_id,body.get('temp_provider'))
         except ProviderError as exc:return jsonify(error=str(exc)),400
         if not preset.get('images'):return jsonify(error='Select OpenAI, xAI or Gemini for image generation'),400
         brief=str(body.get('prompt') or row['prompt'] or 'Futuristic performance car')[:3000]
         made=[];errors=[]
-        for view,label in VIEWS:
+        for view,label in VIEWS[:1 if body.get('view_count')==1 else 4]:
             if view=='cockpit':
                 angle='Driver cockpit interior view from passenger seat, detailed dashboard, steering wheel, front seats and center console'
             else:angle=label+' exterior camera view'
@@ -526,7 +555,7 @@ def concepts():
                 # Avoid paying for further failed requests if the first request fails.
                 if not made:break
     if not made:return jsonify(error='; '.join(errors) or 'No images returned'),502
-    return jsonify(assets=made,warnings=errors,views_requested=4,views_completed=len(made))
+    return jsonify(assets=made,warnings=errors,views_requested=1 if body.get('view_count')==1 else 4,views_completed=len(made))
 
 
 def make_manifest(row):
@@ -538,7 +567,7 @@ def make_manifest(row):
                 'status':'concept','mask':None,'mesh':None,'cad':None,'material':None,
                 'dimensions_mm':None,'tolerance_mm':None,'printable':False,
                 'attachment_points':[],'confidence':None})
-    return {'schema':'umi.manifest/1.0','version':'0.1.4','project':{'id':row['id'],'name':row['name'],
+    return {'schema':'umi.manifest/1.0','version':'0.1.6','project':{'id':row['id'],'name':row['name'],
       'prompt':row['prompt'],'kind':row['kind'],'selected_asset':row['selected_asset']},
       'units':'mm','coordinates':PARTS['coordinate_system'],'design_settings':settings,
       'stages':{'reference':'available' if row['selected_asset'] else 'missing',
@@ -570,7 +599,7 @@ def export(pid):
         for part in manifest['parts']:
             writer.writerow([part['id'],part['label'],part['assembly'],part['status'],'false'])
         z.writestr('bom.csv',out.getvalue())
-        z.writestr('README.txt','UMI LAB concept export v0.1.4\nImages and BOM are design references, not CAD/STL files.\nAll dimensions, interfaces and tolerances require validation.\n')
+        z.writestr('README.txt','UMI LAB concept export v0.1.6\nImages and BOM are design references, not CAD/STL files.\nAll dimensions, interfaces and tolerances require validation.\n')
         for a in assets:
             filename=a['filename']
             if (MEDIA/filename).is_file():z.write(MEDIA/filename,'references/'+filename)

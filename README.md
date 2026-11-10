@@ -30,3 +30,7 @@ Version 0.1.5 is the 3D-first studio foundation. It deliberately opens with no d
 Place `UMI_LAB_UPDATE_v0.1.5.zip` inside the `updates/` folder. Watcher v0.1.2 can validate/deploy it directly; persistent SSH config already defaults to port 333. Do not put secrets or API keys in ZIP releases. Run `./watcher-umi-lab.sh --dry-run` then `./watcher-umi-lab.sh --once` to deploy once, or run without flags to watch continuously.
 
 The release migration is forward-only and retains existing users, projects and assets. The deployer installs dependencies and runs Flask integration tests on Ubuntu before enabling the release. HTTPS, nginx and Gunicorn remain confined to the UMI vhost/service.
+
+
+## v0.1.6 browser and model setup
+The embedded Three.js import map is explicitly CSP-hashed. Do not change the import-map bytes without updating the hash in backend/app.py. Settings -> Models displays one provider form at a time. Test uses non-billable endpoints only; balance is displayed for Tripo and Meshy when available. "Keep in tab" uses browser sessionStorage and never persists the key in SQLite; "Save on server" encrypts keys in SQLite. Image generation starts from a prompt only when an image provider has been configured and Images is selected. Manual four-view generation requires confirmation. No provider key is logged. Tripo, AHOLO, and Meshy are discoverable in 3D credentials settings; automated 3D mesh task submission is not claimed in this release.

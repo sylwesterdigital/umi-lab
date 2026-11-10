@@ -1,6 +1,6 @@
 const $=selector=>document.querySelector(selector);
 const $$=selector=>[...document.querySelectorAll(selector)];
-const state={csrf:'',user:null,projects:[],project:null,assets:[],messages:[],providers:[],parts:null,viewer:null,drive:false,settings:'models',pending:null,filter:'all',logSize:12,logText:'',logTimer:null,appearance:{}};
+const state={csrf:'',user:null,projects:[],project:null,assets:[],messages:[],providers:[],parts:null,viewer:null,drive:false,settings:'models',pending:null,filter:'all',logSize:12,logText:'',logTimer:null,appearance:{},tempProviders:{},selectedProvider:'',generating:false};
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let toastTimer;
 function toast(message,error=false){const target=$('#toast');target.textContent=message;target.className='toast show'+(error?' error':'');clearTimeout(toastTimer);toastTimer=setTimeout(()=>target.className='toast',4200);}
@@ -22,7 +22,15 @@ async function openProject(id){const data=await api('projects/'+id);state.projec
 async function createProject(prompt=''){const result=await api('projects',{method:'POST',json:{name:prompt.slice(0,60)||'New vehicle',prompt,kind:'car'}});state.projects=(await api('projects')).projects;await openProject(result.id);return result.id;}
 function renderProjects(){const wrap=$('#projectList');wrap.replaceChildren();for(const item of state.projects){const button=document.createElement('button');button.className='project-item';button.innerHTML=`${esc(item.name)}<small>${esc(item.kind)} · ${new Date(item.updated_at*1000).toLocaleDateString()}</small>`;button.onclick=()=>openProject(item.id).then(()=>hideSidePanels()).catch(e=>toast(e.message,true));wrap.append(button);}}
 function renderParts(){const wrap=$('#partsContainer');wrap.replaceChildren();if(!state.parts)return;const q=$('#partSearch').value.toLowerCase().trim();for(const group of state.parts.assemblies){const names=group.parts.filter(n=>!q||n.toLowerCase().includes(q)||group.name.toLowerCase().includes(q));if(!names.length)continue;const div=document.createElement('section');div.className='parts-group';div.innerHTML=`<h3>${esc(group.name)} · ${names.length}</h3><div class="part-tags">${names.map(n=>`<span>${esc(n)}</span>`).join('')}</div>`;wrap.append(div);}}
-function renderChat(){const wrap=$('#chatFeed');wrap.replaceChildren();for(const m of state.messages){const item=document.createElement('div');item.className='bubble '+(m.role==='user'?'user':'assistant');item.textContent=m.content;wrap.append(item);}$('#conversation').hidden=state.messages.length===0;if(state.messages.length)wrap.scrollTop=wrap.scrollHeight;}
+function renderChat(){
+ const wrap=$('#chatFeed');wrap.replaceChildren();
+ for(const m of state.messages){const item=document.createElement('div');item.className='bubble '+(m.role==='user'?'user':'assistant');
+  const md=/!\[([^\]]*)\]\((\/api\/media\/[a-f0-9-]+)\)/g;let index=0,hit;
+  while((hit=md.exec(m.content))){if(hit.index>index)item.append(document.createTextNode(m.content.slice(index,hit.index)));const im=document.createElement('img');im.src=hit[2];im.alt=hit[1]||'Generated vehicle image';im.loading='lazy';item.append(im);index=md.lastIndex;}
+  if(index<m.content.length)item.append(document.createTextNode(m.content.slice(index)));wrap.append(item);
+ }
+ $('#conversation').hidden=state.messages.length===0;if(state.messages.length)wrap.scrollTop=wrap.scrollHeight;
+}
 function renderGallery(){const wrap=$('#galleryGrid');wrap.replaceChildren();const assets=state.assets||[];if(!assets.length){wrap.innerHTML='<div class="empty-gallery">Add a reference image or generate concept views using a connected image model.</div>';return;}
  for(const asset of assets){const item=document.createElement('button');item.className='gallery-card'+(state.project?.selected_asset===asset.id?' selected':'');item.title='Select this image as the active reference';const img=document.createElement('img');img.src=asset.url;img.alt=asset.view||'Vehicle reference';img.loading='lazy';const label=document.createElement('span');label.textContent=asset.view==='reference'?'Reference':asset.view.replaceAll('_',' ');item.append(img,label);item.onclick=async()=>{try{const data=await api('projects/'+state.project.id,{method:'PATCH',json:{selected_asset:asset.id}});state.project=data.project;renderGallery();toast('Reference selected');}catch(e){toast(e.message,true);}};wrap.append(item);}
  $('#showGallery').hidden=false;}
@@ -30,14 +38,96 @@ function toggleGallery(show){if(show && !state.project){toast('Describe a vehicl
 function closeTools(){$('#toolsMenu').hidden=true;$('#toolsButton').setAttribute('aria-expanded','false');}
 function hideSidePanels(){for(const id of ['partsPane','garagePane','editPane'])$('#'+id).hidden=true;}
 function togglePanel(id){const show=$('#'+id).hidden;hideSidePanels();$('#'+id).hidden=!show;}
-async function sendPrompt(event){event.preventDefault();const textarea=$('#promptInput');const message=textarea.value.trim();if(!message)return;return withSession(async()=>{const btn=$('#sendButton');setBusy(btn,true);try{if(!state.project)await createProject(message);const result=await api('chat',{method:'POST',json:{project_id:state.project.id,message,provider_id:$('#modelSelect').value}});textarea.value='';$('#welcome').hidden=true;await openProject(state.project.id);$('#conversation').hidden=false;if(result.mode==='offline'&&!state.providers.some(p=>p.enabled))toast('Concept saved. Connect an AI model in Settings to generate responses.');}catch(err){toast(err.message,true);}finally{setBusy(btn,false);}});}
+async function sendPrompt(event){
+ event.preventDefault();const textarea=$('#promptInput');const message=textarea.value.trim();if(!message)return;
+ return withSession(async()=>{
+  const btn=$('#sendButton');setBusy(btn,true,'…');
+  try{
+   if(!state.project)await createProject(message);
+   else await api('projects/'+state.project.id,{method:'PATCH',json:{prompt:message}});
+   const chatID=$('#modelSelect').value;
+   const imageID=$('#imageProviderSelect').value;
+   const imageRequested=$('#autoImages').checked&&!!imageID;
+   if(chatID){await api('chat',{method:'POST',json:{project_id:state.project.id,message,provider_id:chatID,temp_provider:tempConfig(chatID)}});}
+   if(imageRequested){await generateConcepts({automatic:true,prompt:message});}
+   else if(!chatID){toast('Brief saved. Choose an image model to create concepts.');}
+   textarea.value='';$('#welcome').hidden=true;await openProject(state.project.id);
+   if(imageRequested)toggleGallery(true);
+  }catch(err){toast(err.message,true);}finally{setBusy(btn,false);}
+ });
+}
 async function uploadFile(file){if(!file)return;if(!['image/png','image/jpeg','image/webp'].includes(file.type))throw new Error('Use JPG, PNG or WebP');if(file.size>9_000_000)throw new Error('Image exceeds 9 MB');return withSession(async()=>{if(!state.project)await createProject();const data=new FormData();data.append('project_id',state.project.id);data.append('image',file);await api('assets/upload',{method:'POST',body:data});await openProject(state.project.id);toggleGallery(true);$('#welcome').hidden=true;toast('Reference uploaded');});}
-async function generateConcepts(){return withSession(async()=>{if(!state.project)await createProject($('#promptInput').value);const choices=state.providers.filter(p=>p.enabled&&p.images);if(!choices.length){openSettings('models');toast('Enable an image-capable provider first',true);return;}const preferred=choices.find(p=>p.id===$('#modelSelect').value)||choices[0];if(!confirm(`Generate up to four images using ${preferred.name}? API charges may apply.`))return;
- const button=$('#generateButton');setBusy(button,true,'Generating…');try{const res=await api('concepts/generate',{method:'POST',json:{project_id:state.project.id,provider_id:preferred.id,prompt:state.project.prompt||$('#promptInput').value}});await openProject(state.project.id);toggleGallery(true);toast(`${res.views_completed} views generated${res.warnings.length?' · some failed':''}`);}catch(e){toast(e.message,true);}finally{setBusy(button,false);}});}
-function renderModelSelect(){const select=$('#modelSelect');const prior=select.value;select.replaceChildren();select.add(new Option('Offline',''));for(const p of state.providers.filter(p=>p.enabled))select.add(new Option(p.name+' / '+p.model,p.id));if([...select.options].some(o=>o.value===prior))select.value=prior;}
-function renderProviders(){const wrap=$('#providerList');wrap.replaceChildren();for(const p of state.providers){const node=document.createElement('div');node.className='provider-card';node.innerHTML=`<div class="provider-head"><button type="button" class="expand" aria-label="Configure ${esc(p.name)}">⌄</button><strong>${esc(p.name)}</strong><small>${p.has_key?'Key saved':p.local?'Local':'No key'}</small><button type="button" role="switch" aria-checked="${p.enabled}" class="switch ${p.enabled?'on':''}" title="Enable ${esc(p.name)}"><i></i></button></div><div class="provider-fields"><label>Chat model<input class="provider-model" value="${esc(p.model)}"></label><label>Image model<input class="provider-image" value="${esc(p.image_model)}" ${p.images?'':'disabled'}></label><label>API endpoint<input class="provider-url" value="${esc(p.base_url)}"></label><label>API key<input class="provider-key" type="password" autocomplete="new-password" placeholder="${p.has_key?'Stored · unchanged':'Optional for local providers'}"></label><button type="button" class="save-provider">Save</button><button type="button" class="clear-key">Clear key</button></div>`;
- node.querySelector('.expand').onclick=()=>node.classList.toggle('expanded');node.querySelector('.switch').onclick=()=>saveProvider(p,node,!p.enabled);node.querySelector('.save-provider').onclick=()=>saveProvider(p,node,p.enabled);node.querySelector('.clear-key').onclick=()=>{if(confirm('Delete the saved key?'))saveProvider(p,node,p.enabled,true);};wrap.append(node);}}
-async function saveProvider(p,node,enabled,clear=false){try{await api('providers/'+p.id,{method:'PUT',json:{enabled,clear_key:clear,model:node.querySelector('.provider-model').value,image_model:node.querySelector('.provider-image').value,base_url:node.querySelector('.provider-url').value,api_key:node.querySelector('.provider-key').value}});state.providers=(await api('providers')).providers;renderProviders();renderModelSelect();toast(p.name+' saved');}catch(err){toast(err.message,true);}}
+async function generateConcepts(options={}){
+ const automatic=!!options.automatic;
+ return withSession(async()=>{
+  if(!state.project)await createProject($('#promptInput').value);
+  const choices=state.providers.filter(p=>p.images&&isConfigured(p));
+  const select=automatic?$('#imageProviderSelect'):$('#galleryImageModel');
+  const preferred=choices.find(p=>p.id===select.value)||choices[0];
+  if(!preferred){openSettings('models');toast('Connect an image provider first',true);return false;}
+  if(!automatic&&!confirm(`Generate four images with ${preferred.name}? API charges may apply.`))return false;
+  const button=$('#generateButton');if(state.generating)return false;state.generating=true;setBusy(button,true,'Generating…');
+  try{
+   const res=await api('concepts/generate',{method:'POST',json:{project_id:state.project.id,provider_id:preferred.id,prompt:options.prompt||state.project.prompt||$('#promptInput').value,view_count:automatic?1:4,temp_provider:tempConfig(preferred.id)}});
+   await openProject(state.project.id);toggleGallery(true);
+   if(res.warnings?.length)toast(`Generated ${res.views_completed} image(s); ${res.warnings.length} warning(s)`);
+   return true;
+  }catch(e){toast('Image generation: '+e.message,true);return false;}
+  finally{setBusy(button,false);state.generating=false;}
+ });
+}
+const tempStorage='umi-lab.temp-providers.v1',preferenceStorage='umi-lab.model-preferences.v1';
+function loadTempProviders(){try{const value=JSON.parse(sessionStorage.getItem(tempStorage)||'{}');state.tempProviders=(value&&typeof value==='object')?value:{};}catch(e){state.tempProviders={};}}
+function storeTempProviders(){try{sessionStorage.setItem(tempStorage,JSON.stringify(state.tempProviders));}catch(e){toast('Browser session storage unavailable',true);}}
+function tempConfig(id){return state.tempProviders[id]||null;}
+function isConfigured(p){return !!(state.tempProviders[p.id]?.enabled || p.enabled && (p.has_key || p.local));}
+function saveChoices(){try{localStorage.setItem(preferenceStorage,JSON.stringify({chat:$('#modelSelect').value,image:$('#imageProviderSelect').value}));}catch(e){}}
+function getChoices(){try{return JSON.parse(localStorage.getItem(preferenceStorage)||'{}');}catch(e){return {};}}
+function renderModelSelect(){
+ const prefs=getChoices(),chat=$('#modelSelect'),images=$('#imageProviderSelect'),gallery=$('#galleryImageModel');
+ const oldChat=chat.value||prefs.chat,oldImage=images.value||prefs.image;
+ chat.replaceChildren(new Option('No chat model',''));
+ for(const p of state.providers.filter(p=>p.protocol!=='meshy'&&p.protocol!=='tripo'&&p.protocol!=='aholo'&&isConfigured(p)))chat.add(new Option(p.name+' / '+(tempConfig(p.id)?.model||p.model),p.id));
+ if([...chat.options].some(o=>o.value===oldChat))chat.value=oldChat;
+ images.replaceChildren();gallery.replaceChildren();
+ for(const p of state.providers.filter(p=>p.images&&isConfigured(p))){const name=p.name+' / '+(tempConfig(p.id)?.image_model||p.image_model);images.add(new Option(name,p.id));gallery.add(new Option(name,p.id));}
+ if([...images.options].some(o=>o.value===oldImage)){images.value=oldImage;gallery.value=oldImage;}
+ const enabled=images.options.length>0;chat.hidden=chat.options.length<=1;images.hidden=!enabled;gallery.hidden=!enabled;$('#autoImageLabel').hidden=!enabled;
+ saveChoices();
+}
+function renderProviders(){
+ const filter=$('#providerFilter').value,selected=$('#providerSelect'),prior=selected.value||state.selectedProvider;
+ selected.replaceChildren();
+ const valid=state.providers.filter(p=>filter==='all'||filter==='configured'&&isConfigured(p)||filter==='images'&&p.images||filter==='mesh3d'&&p.mesh3d||filter==='chat'&&!p.mesh3d);
+ for(const p of valid)selected.add(new Option(p.name+(isConfigured(p)?' · connected':''),p.id));
+ if([...selected.options].some(o=>o.value===prior))selected.value=prior;
+ state.selectedProvider=selected.value;renderProviderEditor();
+}
+function renderProviderEditor(){
+ const host=$('#providerEditor'),p=state.providers.find(p=>p.id===$('#providerSelect').value);
+ host.replaceChildren();if(!p){host.textContent='No providers in this category';return;}
+ const tmp=tempConfig(p.id)||{},connected=isConfigured(p);
+ const form=document.createElement('form');form.className='provider-fields-compact';form.autocomplete='off';
+ const mesh=p.mesh3d;form.innerHTML=`<div class="provider-title"><strong>${esc(p.name)}</strong><button type="button" role="switch" class="switch ${connected?'on':''}" aria-checked="${connected}" title="Enable or disable this provider"><i></i></button></div>
+ <div class="provider-status">${connected?(tmp.enabled?'Temporary · this tab':'Saved on server'):'Not connected'} · ${mesh?'3D':p.images?'Chat / images':'Chat'}</div>
+ <label>${mesh?'3D model':'Chat model'}<input class="provider-model" value="${esc(tmp.model??p.model??'')}" maxlength="180"></label>
+ ${p.images?`<label>Image model<input class="provider-image" value="${esc(tmp.image_model??p.image_model??'')}" maxlength="180"></label>`:''}
+ <label>API endpoint<input class="provider-url" value="${esc(tmp.base_url??p.base_url??'')}" maxlength="300"></label>
+ <label>API key<input class="provider-key" type="password" autocomplete="new-password" placeholder="${tmp.api_key?'Temporary key loaded':p.has_key?'Encrypted key stored':'Paste key (not shown)'}"></label>
+ <div class="provider-controls"><button type="button" class="test-provider">Test API / balance</button><button type="button" class="temp-provider">Keep in tab</button><button type="submit" class="save-provider">Save on server</button><button type="button" class="clear-provider">Clear</button></div>
+ <div class="provider-note" aria-live="polite">Temporary keys stay in this browser tab. Saved keys are encrypted on the server. Balance is displayed only when the provider supports a non-billable check.</div>`;
+ const field=key=>form.querySelector('.provider-'+key);
+ const config=()=>({enabled:true,model:field('model').value.trim(),image_model:field('image')?.value.trim()||'',base_url:field('url').value.trim(),api_key:field('key').value||tmp.api_key||''});
+ const status=message=>form.querySelector('.provider-note').textContent=message;
+ form.querySelector('.test-provider').onclick=async()=>{const button=form.querySelector('.test-provider');setBusy(button,true,'Checking…');try{const result=await api('providers/'+p.id+'/check',{method:'POST',json:config()});status(`${result.status}${result.balance!=null?' · Balance: '+result.balance:''}${result.detail?' · '+result.detail:''}`);}catch(e){status('Check failed: '+e.message);}finally{setBusy(button,false);}};
+ form.querySelector('.temp-provider').onclick=()=>{state.tempProviders[p.id]=config();storeTempProviders();renderProviders();renderModelSelect();toast(p.name+' available in this tab');};
+ form.onsubmit=async e=>{e.preventDefault();try{await api('providers/'+p.id,{method:'PUT',json:config()});delete state.tempProviders[p.id];storeTempProviders();await refreshProviders();toast(p.name+' saved');}catch(e){status('Save failed: '+e.message);}};
+ form.querySelector('.clear-provider').onclick=async()=>{if(!confirm('Clear temporary and saved API keys for '+p.name+'?'))return;try{await api('providers/'+p.id,{method:'PUT',json:{...config(),api_key:'',clear_key:true,enabled:false}});delete state.tempProviders[p.id];storeTempProviders();await refreshProviders();toast('Key cleared');}catch(e){status('Clear failed: '+e.message);}};
+ form.querySelector('.switch').onclick=async()=>{if(connected){if(tmp.enabled){delete state.tempProviders[p.id];storeTempProviders();renderProviders();renderModelSelect();}else{try{await api('providers/'+p.id,{method:'PUT',json:{...config(),api_key:'',enabled:false}});await refreshProviders();}catch(e){status(e.message);}}}else{if(!config().api_key&&!p.has_key&&!p.local){status('Enter a key then choose temporary or server storage');return;}state.tempProviders[p.id]=config();storeTempProviders();renderProviders();renderModelSelect();}};
+ host.append(form);
+}
+async function refreshProviders(){state.providers=(await api('providers')).providers;renderProviders();renderModelSelect();}
+
 function openSettings(section='models'){if(!state.user && section==='models')section='appearance';$('#drawerBackdrop').hidden=false;$('#settingsDrawer').classList.add('open');$('#settingsDrawer').setAttribute('aria-hidden','false');selectSettings(section);}
 function closeSettings(){$('#drawerBackdrop').hidden=true;$('#settingsDrawer').classList.remove('open');$('#settingsDrawer').setAttribute('aria-hidden','true');}
 function selectSettings(section){if(section==='models'&&!state.user){closeSettings();withSession(()=>openSettings('models'));return;}state.settings=section;$$('.drawer-tabs button').forEach(b=>b.classList.toggle('selected',b.dataset.settings===section));for(const name of ['models','appearance','profile'])$('#'+name+'Settings').hidden=name!==section;if(section==='profile')loadProfile();}
@@ -73,7 +163,7 @@ async function toggleDrive(){if(!state.viewer){toast('3D engine is unavailable',
 async function initializeViewer(){try{state.viewer=await import('./viewer.js');await state.viewer.startViewer($('#vehicleCanvas'));$('#sceneHelp').hidden=false;}catch(e){toast('3D scene unavailable. Check CDN access.',true);console.error('Viewer unavailable',e);}}
 function downloadJSON(obj,name){const href=URL.createObjectURL(new Blob([JSON.stringify(obj,null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=href;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(href),2000);}
 function bind(){
- $('#promptForm').addEventListener('submit',sendPrompt);$('#promptInput').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('#promptForm').requestSubmit();}});
+ $('#providerFilter').onchange=renderProviders;$('#providerSelect').onchange=()=>{state.selectedProvider=$('#providerSelect').value;renderProviderEditor();};$('#imageProviderSelect').onchange=()=>{$('#galleryImageModel').value=$('#imageProviderSelect').value;saveChoices();};$('#modelSelect').onchange=saveChoices;$('#galleryImageModel').onchange=()=>{$('#imageProviderSelect').value=$('#galleryImageModel').value;saveChoices();};$('#promptForm').addEventListener('submit',sendPrompt);$('#promptInput').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('#promptForm').requestSubmit();}});
  $('#homeButton').onclick=()=>{state.project=null;state.assets=[];state.messages=[];$('#welcome').hidden=false;$('#conversation').hidden=true;$('#galleryPane').hidden=true;$('#showGallery').hidden=true;$('#promptInput').value='';$('#promptInput').focus();};$('#toolsButton').onclick=()=>{const willShow=$('#toolsMenu').hidden;$('#toolsMenu').hidden=!willShow;$('#toolsButton').setAttribute('aria-expanded',String(willShow));};$$('#toolsMenu .tool').forEach(b=>b.addEventListener('click',closeTools));$('#settingsButton').onclick=()=>openSettings('models');$('#closeSettings').onclick=closeSettings;$('#drawerBackdrop').onclick=closeSettings;
  $$('.drawer-tabs button').forEach(b=>b.onclick=()=>selectSettings(b.dataset.settings));$('#accountButton').onclick=()=>state.user?openSettings('profile'):showAuth('guest');$('#accountAction').onclick=()=>{if(state.user?.role==='guest'){closeSettings();showAuth('upgrade');}else if(state.user){logout();}else{closeSettings();showAuth('register');}};
  $('#logoutButton').onclick=logout;$('#profileForm').onsubmit=saveProfile;$('#profileAvatar').onchange=e=>saveAvatar(e.target.files[0]);
@@ -87,4 +177,4 @@ function bind(){
  let depth=0;document.addEventListener('dragenter',e=>{if(![...(e.dataTransfer?.types||[])].includes('Files'))return;depth++;$('#dropOverlay').hidden=false;});document.addEventListener('dragover',e=>{if([...(e.dataTransfer?.types||[])].includes('Files'))e.preventDefault();});document.addEventListener('dragleave',e=>{if(![...(e.dataTransfer?.types||[])].includes('Files'))return;depth=Math.max(0,depth-1);if(!depth)$('#dropOverlay').hidden=true;});document.addEventListener('drop',e=>{e.preventDefault();depth=0;$('#dropOverlay').hidden=true;const file=[...(e.dataTransfer?.files||[])].find(f=>f.type.startsWith('image/'));if(file)uploadFile(file).catch(err=>toast(err.message,true));});
  document.addEventListener('click',e=>{if(!e.target.closest('.header-right'))closeTools();});document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeTools();$('#authOverlay').hidden=true;closeSettings();hideSidePanels();$('#galleryPane').hidden=true;}});
 }
-bind();loadAppearance();restoreLocalFont();try{state.logSize=Math.min(23,Math.max(9,Number(localStorage.getItem('umi-lab.log-font')||12)));}catch(e){}$('#logOutput').style.fontSize=state.logSize+'px';initializeViewer();refreshSession().catch(err=>toast('Server connection unavailable: '+err.message,true));
+loadTempProviders();bind();loadAppearance();restoreLocalFont();try{state.logSize=Math.min(23,Math.max(9,Number(localStorage.getItem('umi-lab.log-font')||12)));}catch(e){}$('#logOutput').style.fontSize=state.logSize+'px';initializeViewer();refreshSession().catch(err=>toast('Server connection unavailable: '+err.message,true));

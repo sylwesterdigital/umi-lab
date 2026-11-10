@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="umi-version" content="0.1.5"><meta name="theme-color" content="#111318">
+  <meta name="umi-version" content="0.1.6"><meta name="theme-color" content="#111318">
   <title>UMI LAB</title>
   <link rel="stylesheet" href="/static/css/styles.css">
   <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/","cannon-es":"https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"}}</script>
@@ -35,13 +35,13 @@
   </div>
   <section id="conversation" class="conversation" hidden aria-label="Conversation"><div id="chatFeed" aria-live="polite"></div><button id="clearChatView" class="text-control">Hide chat</button></section>
   <section id="galleryPane" class="gallery-tray" hidden aria-label="Concept gallery">
-    <div class="tray-head"><strong>Concepts</strong><div class="head-actions"><button id="generateButton" type="button">Generate 4 views</button><button id="exportButton" type="button">Export kit</button><button id="closeGallery" type="button" aria-label="Close gallery">×</button></div></div>
+    <div class="tray-head"><strong>Concepts</strong><div class="head-actions"><select id="galleryImageModel" aria-label="Image generation model" hidden></select><button id="generateButton" type="button">Generate 4 views</button><button id="exportButton" type="button">Export kit</button><button id="closeGallery" type="button" aria-label="Close gallery">×</button></div></div>
     <div id="galleryGrid" class="gallery-grid"></div>
   </section>
   <form id="promptForm" class="prompt-form">
     <label class="sr-only" for="promptInput">Describe a vehicle</label>
     <textarea id="promptInput" rows="1" placeholder="Describe your ride…" maxlength="6000"></textarea>
-    <div class="prompt-actions"><button id="attachButton" type="button" title="Add vehicle image" aria-label="Add reference image">＋</button><select id="modelSelect" aria-label="Conversation model"><option value="">Offline</option></select><button id="showGallery" type="button" hidden>Gallery</button><button id="sendButton" type="submit" aria-label="Send prompt">↑</button></div>
+    <div class="prompt-actions"><button id="attachButton" type="button" title="Add vehicle image" aria-label="Add reference image">＋</button><select id="modelSelect" aria-label="Conversation model" hidden><option value="">Offline chat</option></select><label id="autoImageLabel" class="auto-image-label" hidden><input type="checkbox" id="autoImages" checked> Images</label><select id="imageProviderSelect" aria-label="Image generation provider" hidden></select><button id="showGallery" type="button" hidden>Gallery</button><button id="sendButton" type="submit" aria-label="Send prompt">↑</button></div>
     <input id="uploadInput" type="file" accept="image/jpeg,image/png,image/webp" hidden>
   </form>
   <div class="drive-help" id="driveHelp" hidden>W / ↑ accelerate · S / ↓ reverse · A / D steer · Space brake</div>
@@ -52,7 +52,10 @@
 <aside id="settingsDrawer" class="drawer" aria-hidden="true">
   <div class="drawer-heading"><strong>Settings</strong><button id="closeSettings" class="close" aria-label="Close settings">×</button></div>
   <div class="drawer-tabs"><button data-settings="models" class="selected">Models</button><button data-settings="appearance">Appearance</button><button data-settings="profile">Profile</button></div>
-  <section id="modelSettings" class="drawer-section"><div class="quiet-note">Only enabled providers are used. Credentials remain encrypted on the server.</div><div id="providerList"></div></section>
+  <section id="modelsSettings" class="drawer-section">
+    <div class="model-chooser"><label class="sr-only" for="providerFilter">Provider type</label><select id="providerFilter" aria-label="Provider type"><option value="all">All providers</option><option value="chat">Chat</option><option value="images">Image</option><option value="mesh3d">3D</option><option value="configured">Configured</option></select><label class="sr-only" for="providerSelect">Select provider</label><select id="providerSelect" aria-label="Select provider"></select></div>
+    <div id="providerEditor" class="provider-editor"></div>
+  </section>
   <section id="appearanceSettings" class="drawer-section" hidden>
     <label>Theme<select id="themeSelect"><option value="graphite">Graphite</option><option value="night">Night</option><option value="light">Light</option><option value="amber">Amber</option><option value="custom">Custom</option></select></label>
     <label>Accent colour<input id="accentColor" type="color" value="#84a4ff"></label>

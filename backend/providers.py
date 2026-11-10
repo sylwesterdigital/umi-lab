@@ -26,6 +26,9 @@ PRESETS = [
  {'id':'ollama','name':'Ollama','protocol':'openai','base_url':'http://127.0.0.1:11434/v1','model':'llama3.2','image_model':'','images':False,'local':True},
  {'id':'lmstudio','name':'LM Studio','protocol':'openai','base_url':'http://127.0.0.1:1234/v1','model':'local-model','image_model':'','images':False,'local':True},
  {'id':'vllm','name':'vLLM','protocol':'openai','base_url':'http://127.0.0.1:8000/v1','model':'local-model','image_model':'','images':False,'local':True},
+ {'id':'tripo','name':'Tripo 3D','protocol':'tripo','base_url':'https://api.tripo3d.ai/v2/openapi','model':'Turbo-v1.0','image_model':'','images':False,'mesh3d':True},
+ {'id':'aholo','name':'AHOLO Lux3D','protocol':'aholo','base_url':'https://api.aholo.ai','model':'G1','image_model':'','images':False,'mesh3d':True},
+ {'id':'meshy','name':'Meshy 3D','protocol':'meshy','base_url':'https://api.meshy.ai','model':'meshy-7.1','image_model':'','images':False,'mesh3d':True},
  {'id':'custom','name':'Custom Router','protocol':'openai','base_url':'','model':'','image_model':'','images':False},
 ]
 BY_ID = {p['id']:p for p in PRESETS}
@@ -80,6 +83,7 @@ def _post(url, headers, payload, timeout=75):
 
 
 def chat(preset, config, key, messages):
+    if preset.get('mesh3d'):raise ProviderError('Use 3D generation rather than chat for this provider')
     model=config['model'] or preset['model']
     if not model:raise ProviderError('Set a chat model in Settings')
     base=safe_base_url(config['base_url'] or preset['base_url'])
@@ -144,3 +148,35 @@ def generate_image(preset, config, key, prompt):
     except (KeyError,IndexError,TypeError,ValueError) as exc:
         if isinstance(exc,ProviderError):raise
         raise ProviderError('Provider did not return image data') from exc
+
+
+def check_api(preset,config,key):
+    """Non-billable endpoint only. Never create a generation job as a key test."""
+    base=safe_base_url(config.get('base_url') or preset['base_url'])
+    if not key and not preset.get('local'):
+        raise ProviderError('Provide a key or use a saved credential')
+    try:import requests
+    except ImportError as exc:raise ProviderError('Install backend requirements first') from exc
+    ident=preset['id']
+    if ident=='tripo':path='/user/balance';headers={'Authorization':'Bearer '+key}
+    elif ident=='meshy':path='/openapi/v1/balance';headers={'Authorization':'Bearer '+key}
+    elif ident=='aholo':path='/global/asset/v1/token';headers={'Authorization':key}
+    elif preset['protocol']=='gemini':path='/models';headers={'x-goog-api-key':key}
+    elif preset['protocol']=='anthropic':path='/models';headers={'x-api-key':key,'anthropic-version':'2023-06-01'}
+    else:path='/models';headers={'Authorization':'Bearer '+(key or 'local')}
+    try:response=requests.get(base+path,headers=headers,timeout=18,allow_redirects=False)
+    except requests.RequestException as exc:raise ProviderError('Provider is unreachable: '+str(exc)[:90]) from exc
+    if response.status_code in (301,302,307,308):raise ProviderError('Unexpected redirect: check the API endpoint')
+    if response.status_code in (401,403):raise ProviderError('API rejected credential (HTTP '+str(response.status_code)+')')
+    if response.status_code>=400:
+        if response.status_code==404 and ident not in ('tripo','meshy','aholo'):
+            return {'ok':False,'status':'Listing unsupported','detail':'This provider has no verified non-billable check','balance':None}
+        raise ProviderError('API returned HTTP '+str(response.status_code))
+    try:data=response.json()
+    except ValueError:data={}
+    balance=None
+    if ident=='tripo':
+        if isinstance(data,dict) and data.get('code') not in (0,None):raise ProviderError('Tripo balance endpoint rejected request')
+        balance=data.get('data',{}).get('balance') if isinstance(data,dict) else None
+    if ident=='meshy':balance=data.get('balance') if isinstance(data,dict) else None
+    return {'ok':True,'status':'API verified','balance':balance,'detail':'Non-billable check passed'}

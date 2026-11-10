@@ -71,6 +71,17 @@ class FlaskTest(unittest.TestCase):
         result=self.client.get('/api/providers').json
         p=next(p for p in result['providers'] if p['id']=='openai')
         self.assertTrue(p['has_key']);self.assertNotIn('top-secret',str(result))
+    def test_provider_check_uses_nonbillable_request(self):
+        from unittest.mock import patch
+        with patch.object(self.module,'check_api',return_value={'ok':True,'status':'API verified','balance':24,'detail':'Non-billable check passed'}) as mock:
+            response=self.post('/api/providers/tripo/check',{'api_key':'test-key','base_url':'https://api.tripo3d.ai/v2/openapi'})
+            self.assertEqual(response.status_code,200,response.json)
+            self.assertEqual(response.json['balance'],24)
+            self.assertEqual(mock.call_args.args[2],'test-key')
+            result=self.client.get('/api/providers').json
+            item=next(p for p in result['providers'] if p['id']=='tripo')
+            self.assertFalse(item['has_key'])
+
     def test_chat_offline_and_login(self):
         pid=self.post('/api/projects',{'name':'Car'}).json['id']
         response=self.post('/api/chat',{'project_id':pid,'message':'A red supercar'})

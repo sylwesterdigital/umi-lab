@@ -4,6 +4,12 @@ import sys
 from backend.providers import PRESETS, safe_base_url, ProviderError
 
 class ProvidersTest(unittest.TestCase):
+    def test_mesh_providers_have_distinct_protocol(self):
+        from backend.providers import BY_ID
+        for provider in ('tripo','meshy','aholo'):
+            self.assertTrue(BY_ID[provider]['mesh3d'])
+            self.assertFalse(BY_ID[provider]['images'])
+
     def test_presets_unique_and_have_protocol(self):
         self.assertGreaterEqual(len(PRESETS),15)
         self.assertEqual(len(set(p['id'] for p in PRESETS)),len(PRESETS))
