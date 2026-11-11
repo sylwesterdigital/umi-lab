@@ -10,8 +10,8 @@ ROOT=Path(__file__).resolve().parent.parent
 class Canvas026Contract(unittest.TestCase):
     def test_release_versions_and_script_syntax_contract(self):
         version=json.loads((ROOT/'version.json').read_text())['version']
-        self.assertEqual(version,'0.2.6')
-        self.assertIn('content="0.2.6"',(ROOT/'frontend/index.html').read_text())
+        self.assertEqual(version,'0.2.7')
+        self.assertIn('content="0.2.7"',(ROOT/'frontend/index.html').read_text())
 
     def test_envelopes_are_in_scaled_canvas_and_position_worldwise(self):
         html=(ROOT/'frontend/index.html').read_text()
@@ -35,7 +35,8 @@ class Canvas026Contract(unittest.TestCase):
         self.assertIn('id="meshCards"',html)
         self.assertIn('id="meshStageViewer"',html)
         self.assertIn("@app.get('/api/mesh-tasks/<task_id>/preview')",api)
-        self.assertIn('with z.open(member)',api)
+        self.assertIn('preview_blob(MESHES/',api)
+        self.assertIn('with z.open(member)',(ROOT/'backend/mesh_preview.py').read_text())
         self.assertIn('status=status',api)
 
     def test_persistent_image_documents_and_exports(self):

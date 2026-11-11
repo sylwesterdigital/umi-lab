@@ -57,3 +57,7 @@ A new uploaded source photo is positioned in available canvas space, never over 
 
 ## v0.2.6
 Per-image document histories, world-positioned envelopes, linked 3D task previews and optional scene backdrop, plus MP4/WebM viewing. Server integration tests are mandatory during Ubuntu deployment.
+
+
+## v0.2.7
+Completed AHOLO model tasks now prefer viewer-ready GLB output. Existing ZIP-only tasks can recover a separate preview without resubmitting a paid task. The original downloaded package remains accessible.

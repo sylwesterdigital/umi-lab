@@ -22,6 +22,7 @@ from flask import Flask, abort, jsonify, request, send_file, send_from_directory
 from . import db as store
 from .providers import PRESETS, BY_ID, ProviderError, chat as provider_chat, generate_image, safe_base_url, check_api
 from .meta_sam import segment_image
+from .mesh_preview import preview_blob, preview_is_ready
 from .scene_analysis import analyze as analyze_visual_scene, visual_question
 
 ROOT=Path(__file__).resolve().parent.parent
@@ -103,7 +104,7 @@ def security(resp):
     resp.headers['Cache-Control']='no-store' if request.path.startswith('/api/') else 'no-cache'
     resp.headers['Content-Security-Policy']=("default-src 'self'; img-src 'self' data: blob:; "
         "script-src 'self' https://cdn.jsdelivr.net 'sha256-V5W/S/ezCmFEoq8zylsgcbGgPNc2njwXvX8NL5xHP7g='; style-src 'self' 'unsafe-inline'; "
-        "connect-src 'self'; font-src 'self' blob: data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
+        "connect-src 'self' https://cdn.jsdelivr.net; font-src 'self' blob: data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
     return resp
 
 @app.before_request
@@ -1062,13 +1063,27 @@ def mesh_http(method, url, key, payload=None):
     try:return response.json()
     except ValueError as exc:raise ProviderError('Meshy returned invalid JSON') from exc
 
+def mesh_preview_path(task_id):
+    return MESHES / (task_id + '.preview.glb')
+
+
+def task_preview_info(row):
+    """Only advertise preview links for actual viewable GLBs. Archives stay downloadable."""
+    filename=row['model_file']
+    if not filename:return {'preview_url':None,'preview_status':'pending'}
+    path=MESHES/filename
+    if preview_is_ready(path,mesh_preview_path(row['id'])):
+        return {'preview_url':'/api/mesh-tasks/'+row['id']+'/preview','preview_status':'ready'}
+    return {'preview_url':None,'preview_status':'recoverable' if row['status']=='SUCCEEDED' and row['provider']=='aholo' else 'unavailable'}
+
+
 @app.get('/api/projects/<pid>/mesh-tasks')
 @authenticated
 def list_mesh_tasks(pid):
     with store.connect(DATA) as conn:
         if not store.project_for(conn,session['uid'],pid):abort(404)
         rows=conn.execute('SELECT id,asset_id,provider,label,status,model_file,error,credits_est,created_at,updated_at FROM mesh_tasks WHERE project_id=? AND user_id=? ORDER BY created_at DESC',(pid,session['uid'])).fetchall()
-    return jsonify(tasks=[{**dict(x),'download_url':'/api/mesh-tasks/'+x['id']+'/download' if x['model_file'] else None,'preview_url':'/api/mesh-tasks/'+x['id']+'/preview' if x['model_file'] else None} for x in rows])
+    return jsonify(tasks=[{**dict(x),'download_url':'/api/mesh-tasks/'+x['id']+'/download' if x['model_file'] and (MESHES/x['model_file']).is_file() else None,**task_preview_info(x)} for x in rows])
 
 @app.post('/api/projects/<pid>/mesh-tasks')
 @authenticated
@@ -1107,52 +1122,61 @@ def refresh_mesh_task(task_id):
     with store.connect(DATA) as conn:
         row=conn.execute('SELECT * FROM mesh_tasks WHERE id=? AND user_id=?',(task_id,session['uid'])).fetchone()
         if not row:abort(404)
-        if row['status']=='SUCCEEDED' and row['model_file']:
-            return jsonify(id=task_id,status='SUCCEEDED',download_url='/api/mesh-tasks/'+task_id+'/download')
+        filename=row['model_file']
+        original_path=MESHES/filename if filename else None
+        sidecar=mesh_preview_path(task_id)
+        if row['status']=='SUCCEEDED' and filename and original_path.is_file() and preview_is_ready(original_path,sidecar):
+            return jsonify(id=task_id,status='SUCCEEDED',preview_url='/api/mesh-tasks/'+task_id+'/preview',
+                           download_url='/api/mesh-tasks/'+task_id+'/download',preview_status='ready')
         provider_id=row['provider']
         body=request.get_json(silent=True) or {}
         try:_,config,key=get_provider(conn,provider_id,body.get('temp_provider'))
         except ProviderError as exc:return jsonify(error=str(exc)),400
         try:status,url,error=poll_mesh(provider_id,config,key,row['provider_task_id'],mesh_http)
         except ProviderError as exc:return jsonify(error=str(exc)),502
-        filename=row['model_file']
-        if status=='SUCCEEDED' and not filename:
+        if status=='SUCCEEDED' and (not filename or (original_path and not original_path.is_file())):
             try:
                 data,extension=download_mesh_output(provider_id,config,url,75_000_000)
                 name=task_id+'.'+extension
                 target=MESHES/name
-                with target.open('xb') as f:f.write(data)
+                with target.open('wb') as f:f.write(data)
                 os.chmod(target,0o600)
                 filename=name
+                original_path=target
             except (ProviderError,OSError) as exc:
-                (MESHES/(task_id+'.glb')).unlink(missing_ok=True)
-                (MESHES/(task_id+'.zip')).unlink(missing_ok=True)
                 return jsonify(error='Model download failed: '+str(exc)[:170]),502
+        elif status=='SUCCEEDED' and filename and original_path.is_file() and not preview_is_ready(original_path,sidecar) and provider_id=='aholo':
+            # Repair previously downloaded AHOLO ZIP-only results using the SAME
+            # provider task ID. No new paid generation is submitted.
+            if url:
+                try:
+                    data,extension=download_mesh_output(provider_id,config,url,75_000_000)
+                    if extension=='glb':
+                        # Do not destroy the original ZIP; save viewer GLB separately.
+                        from .mesh_preview import _valid_glb_header
+                        if not _valid_glb_header(data):raise ProviderError('Invalid GLB returned for preview')
+                        with sidecar.open('wb') as f:f.write(data)
+                        os.chmod(sidecar,0o600)
+                except (ProviderError,OSError) as exc:
+                    # A valid original download remains retrievable.
+                    error='Preview recovery unavailable: '+str(exc)[:125]
         conn.execute('UPDATE mesh_tasks SET status=?,model_file=?,error=?,updated_at=? WHERE id=?',(status,filename,error,int(time.time()),task_id))
         conn.commit()
-    return jsonify(id=task_id,status=status,download_url='/api/mesh-tasks/'+task_id+'/download' if filename else None,error=error)
+        actual=conn.execute('SELECT id,provider,model_file,status FROM mesh_tasks WHERE id=?',(task_id,)).fetchone()
+    info=task_preview_info(actual)
+    return jsonify(id=task_id,status=status,download_url='/api/mesh-tasks/'+task_id+'/download' if filename and (MESHES/filename).is_file() else None,
+                   error=error,**info)
 
 @app.get('/api/mesh-tasks/<task_id>/preview')
 @authenticated
 def preview_mesh_task(task_id):
     with store.connect(DATA) as conn:
-        row=conn.execute('SELECT model_file,label FROM mesh_tasks WHERE id=? AND user_id=?',(task_id,session['uid'])).fetchone()
+        row=conn.execute('SELECT id,model_file FROM mesh_tasks WHERE id=? AND user_id=?',(task_id,session['uid'])).fetchone()
     if not row or not row['model_file']:abort(404)
-    path=MESHES/row['model_file']
-    if not path.is_file():abort(404)
-    if path.suffix.lower()=='.glb':
-        return send_file(path,mimetype='model/gltf-binary',as_attachment=False)
-    if path.suffix.lower()!='.zip':abort(404)
-    # No extraction to the filesystem: the GLB is read from a bounded ZIP member.
-    try:
-        with zipfile.ZipFile(path) as z:
-            candidates=[m for m in z.infolist() if m.filename.lower().endswith('.glb') and not m.is_dir() and m.file_size<=60_000_000]
-            if not candidates:abort(404)
-            member=sorted(candidates,key=lambda x:x.file_size,reverse=True)[0]
-            with z.open(member) as file:blob=file.read(60_000_001)
-        if len(blob)>60_000_000 or not blob.startswith(b'glTF'):abort(422)
-    except (zipfile.BadZipFile,OSError,RuntimeError):abort(422)
-    return send_file(io.BytesIO(blob),mimetype='model/gltf-binary',as_attachment=False,download_name='model.glb')
+    blob=preview_blob(MESHES/row['model_file'],mesh_preview_path(task_id))
+    if blob is None:
+        return jsonify(error='No GLB preview in saved package. Refresh the same task to recover AHOLO GLB; download stays available.'),409
+    return send_file(io.BytesIO(blob),mimetype='model/gltf-binary',as_attachment=False,download_name='model.glb',conditional=False)
 
 @app.get('/api/mesh-tasks/<task_id>/download')
 @authenticated

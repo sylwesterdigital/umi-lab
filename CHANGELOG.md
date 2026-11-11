@@ -1,5 +1,11 @@
 # UMI LAB changelog
 
+## 0.2.7
+- Prefer direct viewer-ready AHOLO GLB, including for URLs with signed/no-extension paths.
+- Recover previews for already successful ZIP-only tasks without repeating generation; keep archive downloads.
+- Advertise preview links only for viewable GLB artifacts, show recovery and reliable status on canvas.
+- Allow narrowly scoped model-viewer source-map requests to jsDelivr without opening general external connections.
+
 ## 0.2.6
 - Packs are freeform canvas objects, with persistent world coordinates.
 - Corrected per-photo three-dot alignment.

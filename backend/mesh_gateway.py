@@ -104,10 +104,15 @@ def poll_mesh(provider_id,config,key,remote_id,meshy_http):
         task=result.get('d') or {}
         status={'0':'PENDING','1':'IN_PROGRESS','3':'SUCCEEDED','4':'FAILED','6':'CANCELED'}.get(str(task.get('status')),'UNKNOWN')
         outputs=task.get('outputs') or []
-        urls=[o.get('content','') for o in outputs if isinstance(o,dict)]
-        urls=[u for u in urls if isinstance(u,str) and u.startswith('https://')]
-        # Prefer GLB if returned; otherwise use ZIP and preserve textures for download.
-        output=next((u for u in urls if urlsplit(u).path.lower().endswith('.glb')),None) or next((u for u in urls if urlsplit(u).path.lower().endswith('.zip')),None) or ''
+        urls=[o.get('content','') if isinstance(o,dict) else '' for o in outputs]
+        urls=[u if isinstance(u,str) and u.startswith('https://') else '' for u in urls]
+        # AHOLO G1 delivers ZIP in slot 0 and a separate PBR GLB in slot 1.
+        # Use output ordering when a signed URL does not end in an extension.
+        glb=next((u for u in urls if urlsplit(u).path.lower().endswith('.glb')), '')
+        if not glb and len(urls)>1 and urls[1] and not urlsplit(urls[1]).path.lower().endswith('.zip'):
+            glb=urls[1]
+        archive=next((u for u in urls if urlsplit(u).path.lower().endswith('.zip')), '')
+        output=glb or archive or next((u for u in urls if u),'')
         return status,output,str(task.get('message') or result.get('m') or '')[:200]
     if provider_id in ('gpu-triposr','gpu-hunyuan'):
         result=_call('GET',_gpu_root(config)+'/v1/image-to-3d/tasks/'+quote(tid),key or 'local')
