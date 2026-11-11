@@ -1,4 +1,4 @@
-# UMI LAB — Image Table v0.2.0
+# UMI LAB — Image Table v0.2.2
 
 The interface has been rebuilt as a clean, freeform image table. One draggable vehicle photo anchors a family of independently generated angle and component images.
 
@@ -35,3 +35,6 @@ Workspace → 3D offers **Tripo v3**, **AHOLO Lux3D**, **Meshy**, and optional u
 The UMI LAB server stores completed GLB/ZIP files in its private persistent data directory, preserving them across releases. For Meshy, the estimate is 20 credits (untextured) or 30 credits (textured); Tripo/AHOLO and cloud GPU costs depend on model, account and compute. Full automatic assembly alignment, tolerance validation, and print readiness are not implied.
 
 For self-hosted TripoSR and Hunyuan3D, see `docs/GPU_BRIDGE.md`. The bridge is an optional compatibility contract; no GPU or model weights are bundled/deployed with the UMI LAB update.
+
+## v0.2.2
+Restored Activity log handler and fixed page-startup controls.

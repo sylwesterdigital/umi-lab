@@ -1,5 +1,10 @@
 # UMI LAB Changelog
 
+## 0.2.2
+- Fixed startup crash caused by missing Activity log handler.
+- Restored session/admin activity rendering, refresh and copy actions.
+- Added startup and control-binding regression tests.
+
 ## 0.2.1
 - Basic, Medium, Advanced and Complete plans (222 catalogue components); save ungenerated placeholders without paying for them.
 - Persistent per-image generation queue with Pause, Resume, Retry and Follow camera.
