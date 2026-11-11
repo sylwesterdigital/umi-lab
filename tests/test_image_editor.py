@@ -24,6 +24,20 @@ class ImageEditorContract(unittest.TestCase):
         self.assertIn("ev.key==='Escape'",editor)
         self.assertIn('positionDockedPrompt',app)
         self.assertIn("$('#homeButton').onclick=()=>{if(state.project)",app)
+    def test_edit_progress_never_occludes_image(self):
+        editor=(BASE/'frontend/js/image-editor.js').read_text()
+        css=(BASE/'frontend/css/styles.css').read_text()
+        self.assertIn('if(busy){',editor)
+        self.assertIn('ctx.createLinearGradient(',editor)
+        self.assertIn('ctx.strokeRect(sx+border/2',editor)
+        self.assertIn('if(busy){\n        // During AI edits',editor)
+        self.assertIn('}else{\n        ctx.beginPath();ctx.rect',editor)
+        self.assertNotIn("progress.style.width=Math.max(40,sw)",editor)
+        self.assertNotIn("progress.style.height=Math.max(40,sh)",editor)
+        self.assertIn('width:max-content;height:auto',css)
+        self.assertIn('pointer-events:none;overflow:hidden;text-align:left',css)
+        self.assertNotIn('linear-gradient(#050a10a3,#050a10a3)',css)
+
     def test_regions_endpoint_preserves_unselected_pixels(self):
         source=(BASE/'backend/app.py').read_text()
         self.assertIn("@app.post('/api/assets/region')",source)

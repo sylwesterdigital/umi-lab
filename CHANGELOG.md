@@ -1,3 +1,10 @@
+# UMI LAB Changelog
+
+## 0.1.16
+- Keep the source image entirely visible while AI edits run.
+- Animate only the inside perimeter of the selected rectangle with a slim gradient.
+- Replace the full-area translucent status overlay with a compact corner activity pill.
+
 # UMI LAB — Development Updates
 
 ## v0.1.14 — 2026-11-11 02:00 UTC · Reference-first image editing

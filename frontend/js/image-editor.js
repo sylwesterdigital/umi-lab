@@ -24,9 +24,21 @@ export function setupImageEditor({onPick,onCrop,onEdit,getModel=()=>''}) {
     dimensions={w,h,scale,ox,oy};ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
     ctx.drawImage(image,ox,oy,image.naturalWidth*scale,image.naturalHeight*scale);
     if(selection){const r=selection,sx=ox+r.x*scale,sy=oy+r.y*scale,sw=r.w*scale,sh=r.h*scale;
-      ctx.save();ctx.beginPath();ctx.rect(ox,oy,image.naturalWidth*scale,image.naturalHeight*scale);ctx.rect(sx,sy,sw,sh);ctx.fillStyle='rgba(5,10,20,.55)';ctx.fill('evenodd');
-      ctx.strokeStyle=busy?'#71e9d7':confirmed?'#59f1c2':'#ffc271';ctx.lineWidth=busy?2.5:1.5;ctx.setLineDash([8,5]);ctx.lineDashOffset=busy?-(performance.now()/60)%13:0;ctx.strokeRect(sx,sy,sw,sh);ctx.restore();
-      const progress=$('previewProcessing');if(busy){progress.style.left=Math.max(0,sx)+'px';progress.style.top=Math.max(0,sy)+'px';progress.style.width=Math.max(40,sw)+'px';progress.style.height=Math.max(40,sh)+'px';}
+      ctx.save();
+      if(busy){
+        // During AI edits the full original image stays visible: animate ONLY the inside edge.
+        const phase=performance.now()/1050,dx=Math.cos(phase),dy=Math.sin(phase);
+        const glow=ctx.createLinearGradient(sx+sw*(.5-.75*dx),sy+sh*(.5-.75*dy),sx+sw*(.5+.75*dx),sy+sh*(.5+.75*dy));
+        glow.addColorStop(0,'#46e9cc');glow.addColorStop(.3,'#8dbdff');glow.addColorStop(.65,'#d897fa');glow.addColorStop(1,'#ffb88e');
+        const border=Math.min(4,Math.max(2,Math.min(sw,sh)/55));
+        ctx.strokeStyle=glow;ctx.lineWidth=border;ctx.setLineDash([]);
+        ctx.strokeRect(sx+border/2,sy+border/2,Math.max(0,sw-border),Math.max(0,sh-border));
+      }else{
+        ctx.beginPath();ctx.rect(ox,oy,image.naturalWidth*scale,image.naturalHeight*scale);ctx.rect(sx,sy,sw,sh);
+        ctx.fillStyle='rgba(5,10,20,.55)';ctx.fill('evenodd');
+        ctx.strokeStyle=confirmed?'#59f1c2':'#ffc271';ctx.lineWidth=1.5;ctx.setLineDash([8,5]);ctx.strokeRect(sx,sy,sw,sh);
+      }
+      ctx.restore();
     }
     $('previewZoomLabel').textContent=Math.round(zoom*100)+'%';
   }
