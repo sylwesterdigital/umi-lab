@@ -43,6 +43,43 @@ class FlaskTest(unittest.TestCase):
             if v is None:os.environ.pop(k,None)
             else:os.environ[k]=v
     def post(self,url,body):return self.client.post(url,json=body,headers={'X-CSRF-Token':self.csrf})
+    def test_visual_inventory_and_persistent_canvas_undo(self):
+        from unittest.mock import patch
+        pid=self.post('/api/projects',{'name':'Uncategorised scene','kind':'object'}).json['id']
+        img=Image.new('RGB',(64,64),'blue');buf=io.BytesIO();img.save(buf,'PNG');buf.seek(0)
+        result=self.client.post('/api/assets/upload',data={'project_id':pid,'image':(buf,'unknown.png')},
+            headers={'X-CSRF-Token':self.csrf},content_type='multipart/form-data')
+        self.assertEqual(result.status_code,201,result.json)
+        aid=result.json['id']
+        self.client.put('/api/providers/meta',json={'enabled':True,'api_key':'test-only-key',
+             'model':'muse-spark-1.3','image_model':'muse-image-1.0',
+             'base_url':'https://api.meta.ai/v1'},headers={'X-CSRF-Token':self.csrf})
+        fake_report={'title':'Unknown scene','summary':'Visible desk and jewellery',
+             'subject':'workstation and personal items',
+             'objects':[{'name':'earrings','group':'Jewellery','material':'metal','confidence':'high','visible':True,'notes':''}],
+             'materials':['metal'],'market_verified':False}
+        with patch.object(self.module,'analyze_visual_scene',return_value=fake_report) as mocked:
+            analysis=self.post(f'/api/projects/{pid}/analyze',
+                               {'asset_id':aid,'provider_id':'meta'})
+        self.assertEqual(analysis.status_code,200,analysis.json)
+        self.assertEqual(analysis.json['report']['objects'][0]['name'],'earrings')
+        self.assertEqual(mocked.call_count,1)
+        foreign=self.post('/api/projects',{'name':'Other'}).json['id']
+        rejected=self.post(f'/api/projects/{foreign}/analyze',{'asset_id':aid,'provider_id':'meta'})
+        self.assertEqual(rejected.status_code,400)
+        initial={'nodes':[{'id':aid,'x':0,'y':0}],'packs':[],'hero':aid}
+        removed={'nodes':[{'id':aid,'x':0,'y':0,'archived':True}],'packs':[],'hero':None}
+        self.assertEqual(self.post(f'/api/projects/{pid}/canvas-history',{'action':'Original','snapshot':initial}).status_code,200)
+        self.assertEqual(self.post(f'/api/projects/{pid}/canvas-history',{'action':'Archive','snapshot':removed}).status_code,200)
+        timeline=self.client.get(f'/api/projects/{pid}/canvas-history').json
+        self.assertEqual(len(timeline['entries']),2)
+        undone=self.post(f'/api/projects/{pid}/canvas-history',{'direction':'undo'})
+        self.assertEqual(undone.status_code,200,undone.json)
+        self.assertEqual(undone.json['snapshot']['nodes'][0]['archived'] if 'archived' in undone.json['snapshot']['nodes'][0] else False,False)
+        redone=self.post(f'/api/projects/{pid}/canvas-history',{'direction':'redo'})
+        self.assertEqual(redone.status_code,200,redone.json)
+        self.assertTrue(redone.json['snapshot']['nodes'][0]['archived'])
+
     def test_crud_manifest_and_zip(self):
         res=self.post('/api/projects',{'name':'Red Beast','prompt':'Red off-road car'})
         self.assertEqual(res.status_code,201,res.json)

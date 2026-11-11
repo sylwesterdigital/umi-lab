@@ -67,6 +67,16 @@ def init(data_dir):
           credits_est INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_mesh_tasks_project ON mesh_tasks(project_id,created_at);
+        CREATE TABLE IF NOT EXISTS canvas_revisions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          action TEXT NOT NULL, snapshot TEXT NOT NULL, created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_canvas_revisions ON canvas_revisions(project_id,id);
+        CREATE TABLE IF NOT EXISTS canvas_revision_cursor (
+          project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+          revision_id INTEGER NOT NULL
+        );
 
         ''')
         columns={r['name'] for r in db.execute('PRAGMA table_info(users)')}

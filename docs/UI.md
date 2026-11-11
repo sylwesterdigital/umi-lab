@@ -18,3 +18,8 @@ Photo outputs are visual concepts, not reconstructed 3D meshes or validated manu
 - Use envelope eye button to hide/show a generated pack without deleting its assets.
 - Arrange -> Grid / Orbit / Fountain to automatically position visible photos, or Fit to view the visible group. Dragging a photo afterward retains the manual position.
 - Set the active subject in the photo toolbar, and choose the same subject in the component planner. Person, room, product, machine and general-object catalogues list **candidates**, not verified detections. Add a custom item to request something specific.
+
+## Canvas edit mode (v0.2.4)
+Select tool → marquee → multi-photo action bar. Move to pack creates or reuses an envelope. Pack removal archives the graph placement only; the underlying media remains. History is stored in SQLite with a bounded 60-revision timeline and redo cursor, visible by the two arrow buttons.
+
+AI scene analysis is opt-in and does not force a predetermined object category. Its output is uncertain visual metadata, not a price, brand, age, or engineering certification.

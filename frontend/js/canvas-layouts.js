@@ -4,7 +4,7 @@
 'use strict';
 function extent(node,hero){return node.id===hero||node.kind==='hero'?{w:446,h:346}:node.kind==='component'?{w:204,h:184}:{w:252,h:215};}
 function packHidden(node,packs){return !!(node.packId&&packs.some(p=>p.id===node.packId&&p.hidden));}
-function visible(nodes,packs){return nodes.filter(n=>!packHidden(n,packs||[]));}
+function visible(nodes,packs){return nodes.filter(n=>!n.archived&&!packHidden(n,packs||[]));}
 function collides(a,ae,b,be,padding=45){return Math.abs(a.x-b.x)*2<(ae.w+be.w+padding*2)&&Math.abs(a.y-b.y)*2<(ae.h+be.h+padding*2);}
 function nextFreeSpot(nodes,wanted,kind,hero,padding=45){
   const source=Array.isArray(nodes)?nodes:[];

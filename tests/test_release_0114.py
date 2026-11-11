@@ -20,4 +20,4 @@ class TabletopRegressionTests(unittest.TestCase):
         self.assertIn("localStorage.setItem(lastKey,id)",js)
         self.assertIn("if(project?.settings?.tabletop?.nodes?.length)",js)
         self.assertIn('renderSources()',js)
-        self.assertIn('selected_asset:state.hero||null',js)
+        self.assertIn('selected_asset:nodeAsset(byId(state.hero))?.id||null',js)

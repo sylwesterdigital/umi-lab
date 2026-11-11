@@ -16,7 +16,7 @@ class CollectionTest(unittest.TestCase):
     def test_queue_and_pack_are_restorable(self):
         script=(ROOT/'frontend/js/app.js').read_text()
         page=(ROOT/'frontend/index.html').read_text()
-        for literal in ['state.queue=table.queue', "q.status='running'", "q.status=failed?'failed'", "await saveTable()", "status:'planned'", 'renderPackShelf()', 'renderPackDetail()', "function focusNode("]:
+        for literal in ['state.queues=table.queues||{}', "q.status='running'", "q.status=failed?'failed'", "await saveTable()", "status:'planned'", 'renderPackShelf()', 'renderPackDetail()', "function focusNode("]:
             self.assertIn(literal,script)
         for id in ['partCollection','partSearch','partPreview','partsPlan','partsStart','queueRest','resumeQueue','retryFailed','followMode','packShelf','packName','packNotes','meshTaskList','imageSearch']:
             self.assertIn('id="'+id+'"',page)

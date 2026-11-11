@@ -24,8 +24,8 @@ class TabletopFrontendTests(unittest.TestCase):
         for marker in ("['front','Front'", "['rear','Rear'", "['side','Left side'", "['top','Top'", "['front_3q','Front ¾'", "['rear_3q','Rear ¾'"):
             self.assertIn(marker,self.js)
         self.assertIn("mode:'component',part_name:x.label",self.js)
-        self.assertIn('source_asset_id:source||null',self.js)
-        self.assertIn('reference_ids:source?[source]:[]',self.js)
+        self.assertIn('source_asset_id:source?(nodeAsset(byId(source))?.id||source):null',self.js)
+        self.assertIn('reference_ids:source?[nodeAsset(byId(source))?.id||source]:[]',self.js)
         self.assertIn("state.nodes.find(n=>n.parent===parent&&n.kind===kind",self.js)
         self.assertIn('await saveTable()',self.js)
         self.assertIn('state.stopAfter',self.js)

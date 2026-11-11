@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#16191c">
-  <meta name="umi-version" content="0.2.3">
+  <meta name="umi-version" content="0.2.4">
   <title>UMI LAB — Object table</title>
   <link rel="stylesheet" href="/static/css/styles.css">
   <script defer src="/static/js/canvas-layouts.js"></script>
@@ -14,7 +14,7 @@
 <body>
   <main id="studio">
     <header class="topbar">
-      <div class="brand"><button id="homeButton" title="Return to the table" type="button">UMI LAB</button><button id="versionButton" title="Release notes" type="button">0.2.3</button></div>
+      <div class="brand"><button id="homeButton" title="Return to the table" type="button">UMI LAB</button><button id="versionButton" title="Release notes" type="button">0.2.4</button></div>
       <div class="top-controls"><button id="workspaceButton" type="button" title="Workspace, models and projects">Workspace <span aria-hidden="true">⌄</span></button><button id="profileButton" type="button" title="Profile"><span id="profileInitial">○</span><img id="profileImage" alt="" hidden></button></div>
     </header>
 
@@ -23,20 +23,24 @@
         <svg id="links" aria-hidden="true" viewBox="-5000 -5000 10000 10000" width="10000" height="10000"><g id="linkLines"></g></svg>
         <div id="pictures"></div>
       </div>
+      <div id="marquee" class="canvas-marquee" hidden aria-hidden="true"></div>
       <div id="emptyState"><h1>What would you like to create?</h1><p>A vehicle, person, object, product or scene. Describe it or drop in an image.</p></div>
       <div id="boardHelp" hidden>Drag photos to arrange · drag empty space to pan · scroll to zoom</div>
     </section>
 
     <div id="photoActions" class="photo-actions" hidden>
-      <span id="selectedPhotoLabel">Main image</span><select id="sceneKind" aria-label="Active subject" title="What is in this photo?"><option value="vehicle">Vehicle</option><option value="person">Person</option><option value="room">Room</option><option value="product">Product</option><option value="machine">Machine</option><option value="object">Other object</option></select>
+      <span id="selectedPhotoLabel">Main image</span><select id="sceneKind" hidden aria-label="Legacy subject metadata"><option value="vehicle">Vehicle</option><option value="person">Person</option><option value="room">Room</option><option value="product">Product</option><option value="machine">Machine</option><option value="object">Other object</option></select><button id="analyzePhoto" type="button" title="Discover visible objects and materials with a configured vision model">Analyze</button>
       <button id="makeMain" type="button" hidden>Make main</button>
       <button id="anglesButton" type="button">Generate angles</button>
       <button id="partsButton" type="button">Generate parts</button>
       <button id="generateThis" type="button" hidden>Generate this</button><button id="model3dButton" type="button" hidden>Make 3D</button><button id="removePhoto" type="button" title="Remove photo from table (image stays in library)">Remove</button>
     </div>
 
+    <div id="selectionBar" class="selection-bar" hidden role="toolbar" aria-label="Selected photos"><span id="selectionCount">0 selected</span><input id="newSelectionPackName" placeholder="New pack name" maxlength="75" aria-label="New pack name"><select id="selectionPack" aria-label="Move selected photos to pack"><option value="">New pack</option></select><button id="selectionToPack" type="button">To pack</button><button id="selectionCopy" type="button">Copy</button><button id="selectionRemove" type="button">Remove</button><button id="selectionClear" type="button" title="Clear selection">×</button></div>
+    <div id="historyBar" class="history-bar"><button id="historyUndo" type="button" title="Undo · Cmd/Ctrl+Z" disabled>↶</button><button id="historyRedo" type="button" title="Redo · Cmd/Ctrl+Shift+Z" disabled>↷</button><span id="historyLabel">History</span></div>
     <div id="packShelf" class="pack-shelf" hidden aria-label="Image packs"></div>
     <div id="arrangeTools" class="arrange-tools" hidden>
+      <button id="selectionTool" type="button" title="Rectangle select photos, or hold Shift while dragging" aria-pressed="false">▱ Select</button>
       <button id="arrangeButton" type="button" title="Arrange photos" aria-expanded="false" aria-controls="arrangeMenu">Arrange <span aria-hidden="true">⌄</span></button>
       <div id="arrangeMenu" class="arrange-menu" hidden role="group" aria-label="Photo layouts">
         <button type="button" data-layout="grid">▦ Grid</button>
@@ -60,10 +64,11 @@
 
     <aside id="drawer" class="drawer" hidden aria-label="Workspace drawer">
       <div class="drawer-top"><h2 id="drawerTitle">Workspace</h2><button id="drawerClose" type="button" title="Close">×</button></div>
-      <nav class="drawer-tabs" aria-label="Workspace sections"><button data-tab="projects" type="button">Projects</button><button data-tab="sources" type="button">Images</button><button data-tab="packs" type="button">Packs</button><button data-tab="mesh" type="button">3D</button><button data-tab="models" type="button">Models</button><button data-tab="logs" type="button">Activity</button><button data-tab="appearance" type="button">Theme</button><button data-tab="updates" type="button">Updates</button></nav>
+      <nav class="drawer-tabs" aria-label="Workspace sections"><button data-tab="projects" type="button">Projects</button><button data-tab="sources" type="button">Images</button><button data-tab="packs" type="button">Packs</button><button data-tab="analysis" type="button">Analysis</button><button data-tab="mesh" type="button">3D</button><button data-tab="models" type="button">Models</button><button data-tab="logs" type="button">Activity</button><button data-tab="appearance" type="button">Theme</button><button data-tab="updates" type="button">Updates</button></nav>
       <section id="tab-projects" class="tab-content" hidden><div class="button-row"><button id="newProject" class="subtle-primary" type="button">New blank table</button><button id="exportProject" type="button">Export project kit</button></div><div id="projectsList" class="stack"></div></section>
       <section id="tab-sources" class="tab-content" hidden><p class="quiet">Images stay on the server even when removed from the table.</p><input id="imageSearch" type="search" placeholder="Search image names, systems and views…" aria-label="Search images"><label>Filter<select id="imageFilter"><option value="all">All saved images</option><option value="angle">Angles</option><option value="component">Parts</option><option value="reference">References</option></select></label><div id="sourceCount" class="quiet"></div><div id="sourceList" class="source-grid"></div></section>
-      <section id="tab-packs" class="tab-content" hidden><div id="packList" class="pack-list"></div><div id="packDetail" hidden><form id="packForm" class="stack"><label>Pack name<input id="packName" maxlength="75"></label><label>Notes<input id="packNotes" maxlength="320"></label><button type="submit" class="subtle-primary">Save pack</button></form><div id="packStats" class="quiet"></div><div id="packItems" class="pack-items"></div><button id="packToBoard" type="button">Show pack on canvas</button></div></section>
+      <section id="tab-packs" class="tab-content" hidden><div id="packList" class="pack-list"></div><div id="packDetail" hidden><form id="packForm" class="stack"><label>Pack name<input id="packName" maxlength="75"></label><label>Notes<input id="packNotes" maxlength="320"></label><button type="submit" class="subtle-primary">Save pack</button></form><div id="packStats" class="quiet"></div><div id="packItems" class="pack-items"></div><div class="button-row"><button id="packToBoard" type="button">Show pack on canvas</button><button id="deletePack" type="button" class="quiet-danger">Remove pack</button></div></div></section>
+      <section id="tab-analysis" class="tab-content" hidden><p class="quiet">Visual analysis is optional. It does not identify a person or verify product prices. Select a saved photo and choose Analyze.</p><div id="analysisResults" class="stack"></div></section>
       <section id="tab-mesh" class="tab-content" hidden><p class="quiet">Generate one 3D model from a saved part image using Tripo, AHOLO, Meshy or your own GPU. Part assembly and manufacturing validation are separate steps.</p><label>Provider<select id="meshProvider"><option value="tripo">Tripo 3D</option><option value="aholo">AHOLO Lux3D</option><option value="meshy">Meshy 7.1</option><option value="gpu-triposr">GPU · TripoSR</option><option value="gpu-hunyuan">GPU · Hunyuan3D</option></select></label><label class="check-row"><input id="meshTextured" type="checkbox"> Generate textures</label><div id="meshCost" class="quiet"></div><div class="button-row"><button id="refreshMeshes" type="button">Refresh 3D tasks</button></div><div id="meshTaskList" class="stack"></div></section>
       <section id="tab-models" class="tab-content" hidden>
         <label>Provider<select id="providerSelect"></select></label><div id="providerInfo" class="quiet"></div>
@@ -80,8 +85,8 @@
       <section id="tab-updates" class="tab-content" hidden><div id="releaseList" class="stack"></div></section>
     </aside>
 
-    <section id="partsModal" class="modal-scrim" hidden aria-label="Parts plan" role="dialog" aria-modal="true"><div class="modal-card parts-planner"><div class="modal-title"><h2>Part collection</h2><button id="partsClose" type="button">×</button></div><p class="quiet">Create blank slots for candidate objects. Generate only those present in the reference.</p>
-      <label>Scene type<select id="subjectType"><option value="vehicle">Vehicle</option><option value="person">Person & outfit</option><option value="room">Room / scene</option><option value="product">Product</option><option value="machine">Machine / robot</option><option value="object">Other object</option></select></label>
+    <section id="partsModal" class="modal-scrim" hidden aria-label="Parts plan" role="dialog" aria-modal="true"><div class="modal-card parts-planner"><div class="modal-title"><h2>Part collection</h2><button id="partsClose" type="button">×</button></div><p class="quiet">Use AI-detected components from the selected image, or add your own items. Uncertain objects should be reviewed before generation.</p>
+      <label hidden>Legacy scene type<select id="subjectType"><option value="vehicle">Vehicle</option><option value="person">Person & outfit</option><option value="room">Room / scene</option><option value="product">Product</option><option value="machine">Machine / robot</option><option value="object">Other object</option></select></label>
       <label>Complexity<select id="partCollection"><option value="basic">Basic · 12 parts</option><option value="medium">Medium · ~40 parts</option><option value="advanced">Advanced · ~90 parts</option><option value="all">Complete catalogue</option><option value="interior">Interior only</option><option value="running">Running gear</option></select></label><input id="partSearch" type="search" placeholder="Filter possible parts or objects…" aria-label="Filter part names"><div class="custom-part"><input id="customPart" type="text" maxlength="80" placeholder="Add object not listed (e.g. handbag)"><button id="addCustomPart" type="button">Add</button></div><div class="button-row"><button id="selectAllParts" type="button">Select all</button><button id="selectNoneParts" type="button">Select none</button></div><div id="partCount" class="quiet"></div><div id="partPreview" class="parts-checklist"></div><div class="button-row modal-actions"><button id="partsCancel" type="button">Cancel</button><button id="partsPlan" type="button">Plan blank cards</button><button id="partsStart" class="subtle-primary" type="button">Generate selected</button></div></div></section>
 
     <section id="authModal" class="modal-scrim" hidden role="dialog" aria-modal="true" aria-label="Sign in"><div class="modal-card small"><div class="modal-title"><h2 id="authHeading">Continue</h2><button id="authClose" type="button">×</button></div><div class="auth-switch"><button data-auth="guest" type="button">Guest</button><button data-auth="login" type="button">Sign in</button><button data-auth="register" type="button">Create account</button></div><form id="authForm" class="stack"><label id="guestNameWrap">Name<input id="guestName" maxlength="80" placeholder="Name"></label><label id="authUserWrap" hidden>Username<input id="authUser" autocomplete="username"></label><label id="authPasswordWrap" hidden>Password<input id="authPassword" type="password" autocomplete="current-password"></label><label id="authEmailWrap" hidden>Email (optional)<input id="authEmail" type="email"></label><p id="authError" class="error"></p><button id="authSubmit" type="submit" class="subtle-primary">Continue</button></form></div></section>

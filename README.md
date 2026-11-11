@@ -44,3 +44,12 @@ Restored Activity log handler and fixed page-startup controls.
 A new uploaded source photo is positioned in available canvas space, never over an existing cluster. The active subject selector supports vehicles, people/outfits, rooms, products, machines and other objects. The parts planner offers candidate object catalogues per subject; it does not assert that a listed item is present in a photograph. Folder eye controls hide/show packs; Arrange can apply Grid, Orbit or Fountain layouts. Images, hidden pack state, custom candidate items and positions are preserved in project settings.
 
 **Limits:** Image-based brand/product matches are not verified in this release. Age must not be inferred from appearance; use confirmed metadata only. Isolated 3D models require geometry, alignment, licensing and validation before any automatic rigging or assembly.
+
+## Canvas controls (v0.2.4)
+- Select: click **▱ Select** then drag a rectangle on the board, or hold Shift and drag. Shift-click individual photos to add them to a selection.
+- Move a selected group by dragging one member.
+- Use the selection toolbar to place photos in an envelope, copy shared image references with metadata, or remove them from the graph.
+- Press X to remove selected photos from the graph; photos stay in **Workspace → Images**.
+- Undo with Cmd/Ctrl+Z; Redo with Cmd/Ctrl+Shift+Z. History is stored per project in SQLite.
+- Select a photo and click **Analyze** to ask a configured multimodal chat model for an editable candidate inventory of objects and materials. A model refusal does not block the image or project. Analysis is an AI estimate and is not market verification.
+- Images and model data are retained through updates; the watcher manages deployment and backups.

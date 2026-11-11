@@ -1,3 +1,14 @@
+# UMI LAB changelog
+
+## v0.2.4 — Universal scene intelligence and recoverable canvas
+- Removed the visible hardcoded subject picker; optional image analysis creates a free-form inventory of visible items, materials and likely components via an already configured vision model.
+- Added rectangular multi-select, Shift-click selection and group dragging.
+- Added Move to pack, Copy with image metadata, Remove from graph (preserving source images), and Delete pack listing.
+- Added persistent SQLite canvas revisions and Undo/Redo shortcuts.
+- Scoped pending queues to the relevant main image and moved queue status away from bottom controls.
+- Refusals or failed analysis do not block unrelated projects or source photos.
+- No unverified age identification, product-brand verification or price estimates are presented as facts.
+
 ## 0.2.3 — Universal workspace
 - Place new uploads in empty photo space without resetting previous images.
 - Show/hide packs using eye buttons on envelope covers and Packs drawer.

@@ -22,6 +22,7 @@ from flask import Flask, abort, jsonify, request, send_file, send_from_directory
 from . import db as store
 from .providers import PRESETS, BY_ID, ProviderError, chat as provider_chat, generate_image, safe_base_url, check_api
 from .meta_sam import segment_image
+from .scene_analysis import analyze as analyze_visual_scene
 
 ROOT=Path(__file__).resolve().parent.parent
 # Release metadata is the single source of truth for every API/version export.
@@ -445,6 +446,66 @@ def project_detail(pid):
         messages=[dict(r) for r in conn.execute('SELECT role,content,provider,created_at FROM messages WHERE project_id=? ORDER BY rowid ASC LIMIT 80',(pid,))]
     for asset in assets:asset['url']='/api/media/'+asset['id']
     return jsonify(project=store.serialize_project(row),assets=assets,messages=messages)
+
+@app.post('/api/projects/<pid>/analyze')
+@authenticated
+def analyze_scene(pid):
+    body=request.get_json(silent=True) or {}
+    aid=str(body.get('asset_id') or '')
+    provider_id=str(body.get('provider_id') or '')
+    with store.connect(DATA) as conn:
+        project=store.project_for(conn,session['uid'],pid)
+        if not project:abort(404)
+        asset=conn.execute('SELECT filename,mime FROM assets WHERE project_id=? AND id=?',(pid,aid)).fetchone()
+        if not asset:return jsonify(error='Choose a saved image from this project'),400
+        try:
+            preset,config,key=get_provider(conn,provider_id,body.get('temp_provider'))
+            blob=(MEDIA/asset['filename']).read_bytes()
+            started=time.monotonic()
+            report=analyze_visual_scene(preset,config,key,blob,asset['mime'])
+            inference_event(conn,'analyze',provider_id,config.get('model') or preset.get('model',''),'completed',200,round((time.monotonic()-started)*1000),1)
+        except (ProviderError,OSError,ValueError) as exc:return jsonify(error=str(exc)),422
+    return jsonify(report=report,asset_id=aid)
+
+
+@app.route('/api/projects/<pid>/canvas-history',methods=['GET','POST'])
+@authenticated
+def canvas_history(pid):
+    with store.connect(DATA) as conn:
+        if not store.project_for(conn,session['uid'],pid):abort(404)
+        cursor=conn.execute('SELECT revision_id FROM canvas_revision_cursor WHERE project_id=?',(pid,)).fetchone()
+        entries=conn.execute('SELECT id,action,created_at FROM canvas_revisions WHERE project_id=? ORDER BY id',(pid,)).fetchall()
+        if request.method=='GET':
+            return jsonify(entries=[dict(e) for e in entries[-60:]], cursor=cursor['revision_id'] if cursor else None)
+        body=request.get_json(silent=True) or {}
+        direction=body.get('direction')
+        if direction in ('undo','redo'):
+            if not cursor:return jsonify(error='No saved history yet'),409
+            sql=('SELECT id,snapshot FROM canvas_revisions WHERE project_id=? AND id<? ORDER BY id DESC LIMIT 1' if direction=='undo' else
+                 'SELECT id,snapshot FROM canvas_revisions WHERE project_id=? AND id>? ORDER BY id ASC LIMIT 1')
+            next_row=conn.execute(sql,(pid,cursor['revision_id'])).fetchone()
+            if not next_row:return jsonify(error='No further '+direction),409
+            conn.execute('UPDATE canvas_revision_cursor SET revision_id=? WHERE project_id=?',(next_row['id'],pid))
+            conn.commit()
+            return jsonify(snapshot=json.loads(next_row['snapshot']), cursor=next_row['id'])
+        snapshot=body.get('snapshot')
+        if not isinstance(snapshot,dict) or not isinstance(snapshot.get('nodes'),list) or len(snapshot['nodes'])>1200:
+            return jsonify(error='Invalid canvas snapshot'),400
+        encoded=json.dumps(snapshot,separators=(',',':'))
+        if len(encoded)>280000:return jsonify(error='Canvas history entry too large'),400
+        action=str(body.get('action') or 'Canvas change')[:65]
+        if cursor:
+            conn.execute('DELETE FROM canvas_revisions WHERE project_id=? AND id>?',(pid,cursor['revision_id']))
+        conn.execute('INSERT INTO canvas_revisions(project_id,action,snapshot,created_at) VALUES(?,?,?,?)',
+                     (pid,action,encoded,int(time.time())))
+        revision=conn.execute('SELECT last_insert_rowid()').fetchone()[0]
+        conn.execute('INSERT INTO canvas_revision_cursor(project_id,revision_id) VALUES(?,?) '
+                     'ON CONFLICT(project_id) DO UPDATE SET revision_id=excluded.revision_id',(pid,revision))
+        conn.execute('DELETE FROM canvas_revisions WHERE project_id=? AND id NOT IN '
+                     '(SELECT id FROM canvas_revisions WHERE project_id=? ORDER BY id DESC LIMIT 60)',(pid,pid))
+        conn.commit()
+        return jsonify(ok=True,cursor=revision)
+
 
 @app.get('/api/parts')
 @authenticated
