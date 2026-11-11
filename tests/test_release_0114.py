@@ -12,12 +12,12 @@ class Release141Tests(unittest.TestCase):
         app=(ROOT/'frontend/js/app.js').read_text()
         notes=(ROOT/'frontend/js/release-notes.js').read_text()
         ver=json.loads((ROOT/'version.json').read_text())['version']
-        self.assertEqual(ver,'0.1.14')
+        self.assertEqual(ver,'0.1.15')
         for element in ('releaseVersion','releaseNotes','releaseNotesList','updatesButton','closeReleaseNotes'):
             self.assertIn('id="'+element+'"',page)
         self.assertIn("'umi.release.seen.'+RELEASE_VERSION",app)
         self.assertIn('showReleaseNotes(false)',app)
-        self.assertIn("version:'0.1.14'",notes)
+        self.assertIn("version:'0.1.15'",notes)
         self.assertIn('Development updates',page)
 
     def test_selection_move_and_busy_indicators(self):

@@ -706,7 +706,12 @@ def concept_instruction(brief,mode,style,reference_count,system_id='',part_name=
         composition=(f'Generate ONE focused system sheet for the {system_name} of the same vehicle. Highlight the relevant areas, include 3 to 6 supporting detail crops or isolated elements as needed, and add short labels for the major visible components in that system. Keep the rest of the vehicle subdued for context.')
     elif mode=='part':
         part=(part_name or 'selected part')[:80]
-        composition=(f'Generate ONE isolated part sheet for the vehicle component "{part}". Show the part clearly separated from the vehicle and include multiple informative views or callouts if useful. Preserve the same styling and design language as the parent vehicle. Add short labels only.')
+        if reference_count==1:
+            composition=(f'Edit the provided source image of the same vehicle and keep the SAME composition, camera angle, framing, lighting, paint color, reflections, and background. '
+              f'Apply ONLY the requested component change related to "{part}". If the request asks for exclusions such as no tyres, no glass, or only chassis, remove or hide those excluded components while preserving the rest of the image. '
+              'Return ONE clean image only. Do NOT create a contact sheet, multiple views, arrows, labels, captions, or any other text.')
+        else:
+            composition=(f'Generate ONE isolated part sheet for the vehicle component "{part}". Show the part clearly separated from the vehicle and include multiple informative views or callouts if useful. Preserve the same styling and design language as the parent vehicle. Add short labels only.')
     else:
         composition=('ONE IMAGE ONLY: '+VIEWS[mode]+'. Accurate vehicle proportions, consistent with all supplied references, '
           'full vehicle in frame, no artistic reinterpretation. Plain unobtrusive background. No watermarks or unrelated vehicles.')

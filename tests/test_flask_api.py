@@ -245,6 +245,28 @@ class FlaskTest(unittest.TestCase):
             'reference_ids':[source],'source_asset_id':'not-selected'})
         self.assertEqual(bad.status_code,400,bad.json)
 
+
+    def test_single_reference_part_mode_uses_same_image_prompt(self):
+        from unittest.mock import patch
+        pid=self.post('/api/projects',{'name':'Exact edit','prompt':'Old unrelated prompt'}).json['id']
+        image=Image.new('RGB',(96,64),'red');buf=io.BytesIO();image.save(buf,'PNG');buf.seek(0)
+        uploaded=self.client.post('/api/assets/upload',data={'project_id':pid,'image':(buf,'source.png')},
+            headers={'X-CSRF-Token':self.csrf},content_type='multipart/form-data')
+        aid=uploaded.json['id']
+        self.client.put('/api/providers/xai',json={'enabled':True,'api_key':'test-key','model':'grok-4.7','image_model':'grok-imagine-image-2.0','base_url':'https://api.x.ai/v1'},headers={'X-CSRF-Token':self.csrf})
+        output=io.BytesIO();Image.new('RGB',(120,80),'white').save(output,'PNG')
+        captured={}
+        def fake_generate(preset,config,key,prompt,reference_images=None):
+            captured['prompt']=prompt;captured['refs']=reference_images
+            return output.getvalue(),'image/png'
+        with patch.object(self.module,'generate_image',side_effect=fake_generate):
+            res=self.post('/api/concepts/generate',{'project_id':pid,'provider_id':'xai','mode':'part','part_name':'only chassis, no tyres, no glass','instructions':'only chassis, no tyres, no glass','reference_ids':[aid],'source_asset_id':aid})
+        self.assertEqual(res.status_code,200,res.json)
+        self.assertIn('SAME composition',captured['prompt'])
+        self.assertIn('Do NOT create a contact sheet',captured['prompt'])
+        self.assertIn('only chassis, no tyres, no glass',captured['prompt'])
+        self.assertEqual(len(captured['refs']),1)
+
     def test_chat_offline_and_login(self):
         pid=self.post('/api/projects',{'name':'Car'}).json['id']
         response=self.post('/api/chat',{'project_id':pid,'message':'A red supercar'})
