@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#16191c">
-  <meta name="umi-version" content="0.2.4">
+  <meta name="umi-version" content="0.2.5">
   <title>UMI LAB — Object table</title>
   <link rel="stylesheet" href="/static/css/styles.css">
   <script defer src="/static/js/canvas-layouts.js"></script>
@@ -14,7 +14,7 @@
 <body>
   <main id="studio">
     <header class="topbar">
-      <div class="brand"><button id="homeButton" title="Return to the table" type="button">UMI LAB</button><button id="versionButton" title="Release notes" type="button">0.2.4</button></div>
+      <div class="brand"><button id="homeButton" title="Return to the table" type="button">UMI LAB</button><button id="versionButton" title="Release notes" type="button">0.2.5</button></div>
       <div class="top-controls"><button id="workspaceButton" type="button" title="Workspace, models and projects">Workspace <span aria-hidden="true">⌄</span></button><button id="profileButton" type="button" title="Profile"><span id="profileInitial">○</span><img id="profileImage" alt="" hidden></button></div>
     </header>
 
@@ -36,9 +36,13 @@
       <button id="generateThis" type="button" hidden>Generate this</button><button id="model3dButton" type="button" hidden>Make 3D</button><button id="removePhoto" type="button" title="Remove photo from table (image stays in library)">Remove</button>
     </div>
 
-    <div id="selectionBar" class="selection-bar" hidden role="toolbar" aria-label="Selected photos"><span id="selectionCount">0 selected</span><input id="newSelectionPackName" placeholder="New pack name" maxlength="75" aria-label="New pack name"><select id="selectionPack" aria-label="Move selected photos to pack"><option value="">New pack</option></select><button id="selectionToPack" type="button">To pack</button><button id="selectionCopy" type="button">Copy</button><button id="selectionRemove" type="button">Remove</button><button id="selectionClear" type="button" title="Clear selection">×</button></div>
+    <div id="selectionBar" class="selection-bar" hidden role="toolbar" aria-label="Selected photos"><span id="selectionCount">0 selected</span><input id="newSelectionPackName" placeholder="New pack name" maxlength="75" aria-label="New pack name"><select id="selectionPack" aria-label="Move selected photos to pack"><option value="">New pack</option></select><button id="selectionToPack" type="button">To pack</button><button id="selectionCopy" type="button">Copy</button><button id="selectionGrab" type="button" title="Grab and move selected photos · G" aria-pressed="false">G · Move</button><button id="selectionRemove" type="button">Remove</button><button id="selectionClear" type="button" title="Clear selection">×</button></div>
+    <div id="photoContext" class="photo-context" hidden role="menu" aria-label="Photo actions">
+      <button type="button" data-photo-action="make-main">Make main</button><button type="button" data-photo-action="analyze">Analyze visible objects</button><button type="button" data-photo-action="describe">Describe / ask AI</button><button type="button" data-photo-action="image">Generate / edit image</button><button type="button" data-photo-action="3d">Generate 3D</button><button type="button" data-photo-action="video">Video storyboard plan</button><button type="button" data-photo-action="avatar">Avatar / rig plan</button><button type="button" data-photo-action="persona">Fictional persona concept</button><button type="button" data-photo-action="copy">Copy</button><button type="button" data-photo-action="pack">Move to pack</button><button type="button" data-photo-action="archive">Archive</button>
+    </div>
+    <div id="photoComposer" class="photo-composer" hidden role="dialog" aria-label="AI action for selected photo"><div class="composer-top"><strong id="composerTitle">Ask AI</strong><button id="composerClose" type="button" title="Close">×</button></div><div id="composerSource" class="quiet"></div><textarea id="composerPrompt" rows="4" maxlength="3000" placeholder="What should happen to this photo?"></textarea><div class="composer-row"><select id="composerProvider" aria-label="AI model"></select><button id="composerSend" type="button">Run ↗</button></div><div id="composerResult" class="composer-result" hidden></div></div>
     <div id="historyBar" class="history-bar"><button id="historyUndo" type="button" title="Undo · Cmd/Ctrl+Z" disabled>↶</button><button id="historyRedo" type="button" title="Redo · Cmd/Ctrl+Shift+Z" disabled>↷</button><span id="historyLabel">History</span></div>
-    <div id="packShelf" class="pack-shelf" hidden aria-label="Image packs"></div>
+    <div id="packShelf" class="pack-shelf" hidden aria-label="Image packs"></div><button id="canvasTrash" class="canvas-trash" type="button" hidden title="Archive photos or packs by dropping here; images remain in the library" aria-label="Trash — archive photos or packs">⌫<small>Archive</small></button>
     <div id="arrangeTools" class="arrange-tools" hidden>
       <button id="selectionTool" type="button" title="Rectangle select photos, or hold Shift while dragging" aria-pressed="false">▱ Select</button>
       <button id="arrangeButton" type="button" title="Arrange photos" aria-expanded="false" aria-controls="arrangeMenu">Arrange <span aria-hidden="true">⌄</span></button>

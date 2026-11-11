@@ -70,3 +70,36 @@ def analyze(preset,config,key,blob,mime):
         except (KeyError,IndexError,TypeError) as exc:raise ProviderError('Empty vision response') from exc
         if isinstance(text,list):text=''.join(x.get('text','') for x in text if isinstance(x,dict))
     return normalize(text)
+
+
+def visual_question(preset,config,key,blob,mime,question):
+    """Ask any configured vision-compatible model about a saved image; text output only."""
+    question=str(question or '').strip()[:3000]
+    if not question:raise ProviderError('Write a question or choose a visual action')
+    if preset.get('mesh3d') or preset.get('protocol')=='anthropic':
+        raise ProviderError('Choose a vision-capable chat model (Meta, OpenAI-compatible or Gemini)')
+    if not key and not preset.get('local'):raise ProviderError('Connect a vision model in Models first')
+    model=config.get('model') or preset.get('model')
+    if not model:raise ProviderError('Choose a multimodal chat model')
+    base=safe_base_url(config.get('base_url') or preset['base_url'])
+    with Image.open(io.BytesIO(blob)) as raw:
+        raw=raw.convert('RGB');raw.thumbnail((1200,1200));buf=io.BytesIO();raw.save(buf,'JPEG',quality=83)
+    encoded=base64.b64encode(buf.getvalue()).decode('ascii')
+    instruction=('Study this reference image. '+question+' Respond concisely. Only describe observable details as facts. '
+      'Do not infer a real person\'s identity, exact age, health, demographics or personality from appearance. '
+      'You may invent explicitly fictional character concepts when requested and distinguish them from facts. '
+      'Do not claim that you generated video, rigs, meshes or verified market prices. ')
+    if preset['protocol']=='gemini':
+        out=_post(base+'/models/'+model+':generateContent',{'x-goog-api-key':key},
+          {'contents':[{'parts':[{'text':instruction},{'inlineData':{'mimeType':'image/jpeg','data':encoded}}]}]},timeout=105)
+        try:text=''.join(x.get('text','') for x in out['candidates'][0]['content']['parts'])
+        except (KeyError,IndexError,TypeError) as exc:raise ProviderError('Empty Gemini answer') from exc
+    else:
+        out=_post(base+'/chat/completions',{'Authorization':'Bearer '+(key or 'local')},
+          {'model':model,'stream':False,'max_tokens':1500,'messages':[{'role':'user','content':[{'type':'text','text':instruction},
+          {'type':'image_url','image_url':{'url':'data:image/jpeg;base64,'+encoded}}]}]},timeout=105)
+        try:text=out['choices'][0]['message']['content']
+        except (KeyError,IndexError,TypeError) as exc:raise ProviderError('Empty vision answer') from exc
+        if isinstance(text,list):text=''.join(x.get('text','') for x in text if isinstance(x,dict))
+    if not isinstance(text,str) or not text.strip():raise ProviderError('The model returned no text')
+    return text.strip()[:9000]

@@ -58,3 +58,30 @@ body[data-theme=warm]{--bg:#29221e;--surface:#3e312a;--ink:#f3ebdf;--muted:#c3b5
 .photo-actions #analyzePhoto{background:#b7d3c7;color:#193127}
 .quiet-danger{color:#ffb3a5!important}
 @media(max-width:700px){.history-bar{top:65px;left:48%}.history-bar span{max-width:70px}.selection-bar{top:112px;gap:5px;max-width:98vw}.selection-bar input{width:84px}.queue-rest{top:190px;right:10px;max-width:190px;z-index:11}}
+/* v0.2.5: quiet contextual controls, stronger selection and real drag targets */
+.picture.selected .picture-inner{outline:4px solid #71f0a3!important;outline-offset:5px;box-shadow:0 0 0 2px #0b382c,0 0 22px #56fa9180,0 18px 40px #0006!important}
+.picture.selected figcaption{color:#b9ffcf;font-weight:650}
+.picture .photo-more{position:absolute;top:-19px;right:-15px;width:27px;height:27px;border-radius:50%;border:1px solid #86bd9b95;background:#1c2a25e9;color:#dcfbe6;display:grid;place-items:center;font-size:19px;opacity:0;transition:opacity .15s;z-index:5;box-shadow:0 4px 14px #0006}
+.picture:hover .photo-more,.picture:focus-within .photo-more,.picture.selected .photo-more{opacity:1}
+.grab-mode .picture.selected{cursor:grab}.grab-mode .picture.selected:active{cursor:grabbing}
+.selection-bar.undocked,.prompt-card.undocked{position:fixed;transform:none;bottom:auto;margin:0;z-index:35}
+.selection-bar:not(:has(input:focus,select:focus,button:active)),.prompt-card:not(:has(textarea:focus,select:focus,button:active)){cursor:grab}
+.selection-bar #selectionGrab[aria-pressed=true]{background:#8bf3b3;color:#102a1a}
+.canvas-trash{position:fixed;bottom:22px;left:23px;z-index:23;width:52px;height:59px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border:1px solid #8caaa054;border-radius:14px;background:#23302dde;color:#a3c1b4;font-size:24px;box-shadow:0 7px 20px #0005;opacity:.66;transition:.15s}
+.canvas-trash small{font-size:9px}.canvas-trash:hover,.canvas-trash:focus-visible{opacity:1;background:#3a524a;color:#effff1;border-color:#86eab5}
+.envelope-wrap{transform:translate(var(--pack-x,0px),var(--pack-y,0px));will-change:transform;touch-action:none}
+.envelope-wrap.drop-into .envelope{outline:4px solid #8fe9b5;box-shadow:0 0 27px #6cf1a570}
+.envelope-wrap .envelope{cursor:grab;touch-action:none}.envelope-wrap .envelope:active{cursor:grabbing}
+.photo-context{position:fixed;z-index:76;min-width:210px;max-width:245px;max-height:min(420px,70vh);overflow:auto;padding:6px;border:1px solid #95b5a081;border-radius:15px;background:#26352fec;box-shadow:0 22px 65px #000b;backdrop-filter:blur(26px)}
+.photo-context button{display:block;width:100%;padding:10px 12px;border-radius:9px;color:#e3f0e9;text-align:left;font-size:12px;line-height:1.2}
+.photo-context button:hover,.photo-context button:focus-visible{background:#b4e8ca24}
+.photo-context [data-photo-action=archive]{border-top:1px solid #81948855;color:#f1b9a9;margin-top:4px;border-radius:0 0 9px 9px}
+.photo-composer{position:fixed;z-index:77;width:min(385px,calc(100vw - 15px));max-height:75vh;overflow-y:auto;background:#25352ff6;box-shadow:0 22px 60px #000a;border:1px solid #8aa79977;border-radius:16px;padding:13px;backdrop-filter:blur(26px);display:flex;flex-direction:column;gap:8px}
+.composer-top{display:flex;align-items:center;justify-content:space-between;gap:10px}.composer-top strong{font-size:13px}.composer-top button{font-size:20px;color:#c9d6d0}
+.photo-composer textarea{width:100%;min-height:93px;resize:vertical;background:#131e1bbd;border:1px solid #829d8c77;border-radius:10px;color:#f2fff7;padding:11px;font-size:12px;line-height:1.5}
+.composer-row{display:flex;gap:7px}.composer-row select{min-width:0;flex:1;font-size:11px;background:#192923}
+.composer-row button{padding:10px 13px;white-space:nowrap;background:#cce9d8;color:#182d22;border-radius:10px;font-size:12px;font-weight:650}
+.composer-result{font-size:12px;line-height:1.6;white-space:pre-wrap;overflow:auto;max-height:30vh;background:#14211c;border:1px solid #698a7955;padding:11px;border-radius:10px}
+@media(max-width:700px){.canvas-trash{bottom:85px;left:6px;width:43px;height:46px;font-size:19px}.canvas-trash small{font-size:8px}.photo-context{max-width:70vw}.photo-composer{width:calc(100vw - 20px)}}
+
+.canvas-trash.drop-into{opacity:1;background:#567265;color:#fff;border:2px solid #8cf0b2;box-shadow:0 0 30px #82fbb76d}

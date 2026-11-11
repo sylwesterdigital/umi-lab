@@ -22,7 +22,7 @@ from flask import Flask, abort, jsonify, request, send_file, send_from_directory
 from . import db as store
 from .providers import PRESETS, BY_ID, ProviderError, chat as provider_chat, generate_image, safe_base_url, check_api
 from .meta_sam import segment_image
-from .scene_analysis import analyze as analyze_visual_scene
+from .scene_analysis import analyze as analyze_visual_scene, visual_question
 
 ROOT=Path(__file__).resolve().parent.parent
 # Release metadata is the single source of truth for every API/version export.
@@ -468,6 +468,27 @@ def analyze_scene(pid):
     return jsonify(report=report,asset_id=aid)
 
 
+@app.post('/api/projects/<pid>/visual-query')
+@authenticated
+def visual_query(pid):
+    body=request.get_json(silent=True) or {}
+    aid=str(body.get('asset_id') or '')
+    provider_id=str(body.get('provider_id') or '')
+    question=str(body.get('prompt') or '')[:3000].strip()
+    if not question:return jsonify(error='Enter a question'),400
+    with store.connect(DATA) as conn:
+        if not store.project_for(conn,session['uid'],pid):abort(404)
+        asset=conn.execute('SELECT filename,mime FROM assets WHERE id=? AND project_id=?',(aid,pid)).fetchone()
+        if not asset:return jsonify(error='Select a saved image'),404
+        try:
+            preset,config,key=get_provider(conn,provider_id,body.get('temp_provider'))
+            blob=(MEDIA/asset['filename']).read_bytes()
+            started=time.monotonic()
+            answer=visual_question(preset,config,key,blob,asset['mime'],question)
+            inference_event(conn,'visual-query',provider_id,config.get('model') or preset.get('model',''),'completed',200,round((time.monotonic()-started)*1000),1)
+        except (ProviderError,OSError,ValueError) as exc:return jsonify(error=str(exc)),422
+    return jsonify(answer=answer,asset_id=aid,provider=provider_id)
+
 @app.route('/api/projects/<pid>/canvas-history',methods=['GET','POST'])
 @authenticated
 def canvas_history(pid):
@@ -758,7 +779,9 @@ def concept_instruction(brief,mode,style,reference_count,system_id='',part_name=
               if reference_count else 'Create ONE coherent main image matching the user prompt. ')
     if subject_type!='vehicle' and mode in ('front_3q','front','rear','side','top','rear_3q'):
         return f'Create ONE coherent visual of the requested {subject_type}, based on this brief: {brief}. {identity} Show the {mode.replace('_',' ')} view only if meaningful. No captions, typography, grids, diagrams, or inset panels. {style}'.strip()
-    if mode=='sheet':
+    if mode=='variation':
+        composition=('Make ONE high-quality image-to-image edit of the supplied source. Preserve subject identity and existing composition unless the user explicitly requests changes. No text, labels, collage, inset panels or unintended new objects. '+style)
+    elif mode=='sheet':
         composition=('Generate ONE LANDSCAPE TECHNICAL BLUEPRINT CONTACT SHEET with EXACTLY SIX equal, clean panels in a 3-column by 2-row grid, '
           'showing the identical vehicle. Panels in reading order: (1) FRONT straight orthographic, (2) REAR straight orthographic, '
           '(3) LEFT SIDE orthographic, (4) TOP overhead orthographic, (5) FRONT THREE-QUARTER, (6) REAR THREE-QUARTER. '
@@ -797,7 +820,7 @@ def concepts():
     body=request.get_json(silent=True) or {}
     pid=str(body.get('project_id',''));provider_id=str(body.get('provider_id',''))
     mode=str(body.get('mode') or ('front_3q' if body.get('view_count')==1 else 'sheet'))
-    if mode not in {'sheet','annotate','system','part','component'} and mode not in VIEWS:return jsonify(error='Unknown view type'),400
+    if mode not in {'sheet','annotate','system','part','component','variation'} and mode not in VIEWS:return jsonify(error='Unknown view type'),400
     with store.connect(DATA) as conn:
         row=store.project_for(conn,session['uid'],pid)
         if not row:abort(404)
@@ -837,7 +860,7 @@ def concepts():
         inference_event(conn,'image',provider_id,model,'started',102,0,len(references))
         try:
             content,mime=generate_image(preset,config,key,instruction,reference_images=references)
-            asset_view={'sheet':'six_view_sheet','annotate':'annotated_parts_map','system':'system_sheet','part':'isolated_part','component':'component'}.get(mode,mode)
+            asset_view={'sheet':'six_view_sheet','annotate':'annotated_parts_map','system':'system_sheet','part':'isolated_part','component':'component','variation':'variation'}.get(mode,mode)
             aid,err=save_asset(conn,pid,content,mime, asset_view,'ai:'+provider_id)
             if err:raise ProviderError(err)
             # Maintain active source: generating a derivative must not silently change the reference.
@@ -872,7 +895,7 @@ def concepts():
             elapsed_ms=round((time.monotonic()-started)*1000)
             inference_event(conn,'image',provider_id,model,'failed',502,elapsed_ms,len(references))
             return jsonify(error=str(exc)),502
-    result_view={'sheet':'six_view_sheet','annotate':'annotated_parts_map','system':'system_sheet','part':'isolated_part','component':'component'}.get(mode,mode)
+    result_view={'sheet':'six_view_sheet','annotate':'annotated_parts_map','system':'system_sheet','part':'isolated_part','component':'component','variation':'variation'}.get(mode,mode)
     return jsonify(assets=[{'id':aid,'url':'/api/media/'+aid,'view': result_view}],
                    warnings=[],views_requested=6 if mode=='sheet' else 1,views_completed=6 if mode=='sheet' else 1,
                    images_created=1,mode=mode,reference_count=len(references),model=model,elapsed_ms=elapsed_ms,system_id=system_id or None,part_name=part_name or None,source_asset_id=source_id or (ids[0] if ids else None))

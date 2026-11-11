@@ -19,6 +19,15 @@
 
 # UMI LAB Changelog
 
+## 0.2.5
+- Added compact three-dot per-image contextual actions and image-grounded AI prompt composer.
+- Added photo image variations plus vision model descriptions, storyboard plans, avatar rig plans and fictional persona concepts.
+- Improved selection visibility, G grab mode, draggable prompt/selection bar and photo envelope drag/drop sorting.
+- Added archive/trash handling for image and envelope canvas items, preserving source assets for undo/recovery.
+- Hid inactive blank angle placeholders, deduplicated stale planned-angle slots, and preserved existing generated photos.
+
+
+
 ## 0.2.2
 - Fixed startup crash caused by missing Activity log handler.
 - Restored session/admin activity rendering, refresh and copy actions.
