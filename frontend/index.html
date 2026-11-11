@@ -4,30 +4,31 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#16191c">
-  <meta name="umi-version" content="0.2.2">
-  <title>UMI LAB — Image table</title>
+  <meta name="umi-version" content="0.2.3">
+  <title>UMI LAB — Object table</title>
   <link rel="stylesheet" href="/static/css/styles.css">
+  <script defer src="/static/js/canvas-layouts.js"></script>
   <script defer src="/static/js/app.js"></script>
   <!-- Watcher v0.1.3 compatibility markers (no legacy UI loaded): galleryGrid settingsDrawer partsPane viewerPane -->
 </head>
 <body>
   <main id="studio">
     <header class="topbar">
-      <div class="brand"><button id="homeButton" title="Return to the table" type="button">UMI LAB</button><button id="versionButton" title="Release notes" type="button">0.2.2</button></div>
+      <div class="brand"><button id="homeButton" title="Return to the table" type="button">UMI LAB</button><button id="versionButton" title="Release notes" type="button">0.2.3</button></div>
       <div class="top-controls"><button id="workspaceButton" type="button" title="Workspace, models and projects">Workspace <span aria-hidden="true">⌄</span></button><button id="profileButton" type="button" title="Profile"><span id="profileInitial">○</span><img id="profileImage" alt="" hidden></button></div>
     </header>
 
-    <section id="board" aria-label="Freeform vehicle design table" tabindex="0">
+    <section id="board" aria-label="Freeform object modelling table" tabindex="0">
       <div id="boardWorld">
         <svg id="links" aria-hidden="true" viewBox="-5000 -5000 10000 10000" width="10000" height="10000"><g id="linkLines"></g></svg>
         <div id="pictures"></div>
       </div>
-      <div id="emptyState"><h1>What would you love to drive?</h1><p>Describe it or drop in an image.</p></div>
+      <div id="emptyState"><h1>What would you like to create?</h1><p>A vehicle, person, object, product or scene. Describe it or drop in an image.</p></div>
       <div id="boardHelp" hidden>Drag photos to arrange · drag empty space to pan · scroll to zoom</div>
     </section>
 
     <div id="photoActions" class="photo-actions" hidden>
-      <span id="selectedPhotoLabel">Main image</span>
+      <span id="selectedPhotoLabel">Main image</span><select id="sceneKind" aria-label="Active subject" title="What is in this photo?"><option value="vehicle">Vehicle</option><option value="person">Person</option><option value="room">Room</option><option value="product">Product</option><option value="machine">Machine</option><option value="object">Other object</option></select>
       <button id="makeMain" type="button" hidden>Make main</button>
       <button id="anglesButton" type="button">Generate angles</button>
       <button id="partsButton" type="button">Generate parts</button>
@@ -35,12 +36,21 @@
     </div>
 
     <div id="packShelf" class="pack-shelf" hidden aria-label="Image packs"></div>
+    <div id="arrangeTools" class="arrange-tools" hidden>
+      <button id="arrangeButton" type="button" title="Arrange photos" aria-expanded="false" aria-controls="arrangeMenu">Arrange <span aria-hidden="true">⌄</span></button>
+      <div id="arrangeMenu" class="arrange-menu" hidden role="group" aria-label="Photo layouts">
+        <button type="button" data-layout="grid">▦ Grid</button>
+        <button type="button" data-layout="orbit">✳ Orbit</button>
+        <button type="button" data-layout="fountain">⌁ Fountain</button>
+        <button type="button" id="fitLayout">Fit all</button>
+      </div>
+    </div>
     <div id="queueRest" class="queue-rest" hidden><span id="queueRestText"></span><button id="resumeQueue" type="button">Resume</button><button id="retryFailed" type="button" hidden>Retry failed</button></div>
 
     <form id="promptForm" class="prompt-card">
       <button id="uploadButton" type="button" title="Add an image" aria-label="Add image">＋</button>
-      <label class="sr-only" for="promptInput">Describe a vehicle</label>
-      <textarea id="promptInput" rows="1" placeholder="Imagine a vehicle…" maxlength="6000" required></textarea>
+      <label class="sr-only" for="promptInput">Describe an object or scene</label>
+      <textarea id="promptInput" rows="1" placeholder="Imagine anything…" maxlength="6000" required></textarea>
       <select id="imageProvider" aria-label="Image model"><option value="">Choose model</option></select>
       <button id="promptSubmit" class="create-button" type="submit">Generate <span aria-hidden="true">↗</span></button>
       <input id="uploadInput" type="file" accept="image/jpeg,image/png,image/webp" hidden>
@@ -70,10 +80,12 @@
       <section id="tab-updates" class="tab-content" hidden><div id="releaseList" class="stack"></div></section>
     </aside>
 
-    <section id="partsModal" class="modal-scrim" hidden aria-label="Parts plan" role="dialog" aria-modal="true"><div class="modal-card parts-planner"><div class="modal-title"><h2>Part collection</h2><button id="partsClose" type="button">×</button></div><p class="quiet">Create blank slots for everything; generate only the components you select.</p><label>Complexity<select id="partCollection"><option value="basic">Basic · 12 parts</option><option value="medium">Medium · ~40 parts</option><option value="advanced">Advanced · ~90 parts</option><option value="all">Complete catalogue</option><option value="interior">Interior only</option><option value="running">Running gear</option></select></label><input id="partSearch" type="search" placeholder="Filter parts…" aria-label="Filter part names"><div class="button-row"><button id="selectAllParts" type="button">Select all</button><button id="selectNoneParts" type="button">Select none</button></div><div id="partCount" class="quiet"></div><div id="partPreview" class="parts-checklist"></div><div class="button-row modal-actions"><button id="partsCancel" type="button">Cancel</button><button id="partsPlan" type="button">Plan blank cards</button><button id="partsStart" class="subtle-primary" type="button">Generate selected</button></div></div></section>
+    <section id="partsModal" class="modal-scrim" hidden aria-label="Parts plan" role="dialog" aria-modal="true"><div class="modal-card parts-planner"><div class="modal-title"><h2>Part collection</h2><button id="partsClose" type="button">×</button></div><p class="quiet">Create blank slots for candidate objects. Generate only those present in the reference.</p>
+      <label>Scene type<select id="subjectType"><option value="vehicle">Vehicle</option><option value="person">Person & outfit</option><option value="room">Room / scene</option><option value="product">Product</option><option value="machine">Machine / robot</option><option value="object">Other object</option></select></label>
+      <label>Complexity<select id="partCollection"><option value="basic">Basic · 12 parts</option><option value="medium">Medium · ~40 parts</option><option value="advanced">Advanced · ~90 parts</option><option value="all">Complete catalogue</option><option value="interior">Interior only</option><option value="running">Running gear</option></select></label><input id="partSearch" type="search" placeholder="Filter possible parts or objects…" aria-label="Filter part names"><div class="custom-part"><input id="customPart" type="text" maxlength="80" placeholder="Add object not listed (e.g. handbag)"><button id="addCustomPart" type="button">Add</button></div><div class="button-row"><button id="selectAllParts" type="button">Select all</button><button id="selectNoneParts" type="button">Select none</button></div><div id="partCount" class="quiet"></div><div id="partPreview" class="parts-checklist"></div><div class="button-row modal-actions"><button id="partsCancel" type="button">Cancel</button><button id="partsPlan" type="button">Plan blank cards</button><button id="partsStart" class="subtle-primary" type="button">Generate selected</button></div></div></section>
 
     <section id="authModal" class="modal-scrim" hidden role="dialog" aria-modal="true" aria-label="Sign in"><div class="modal-card small"><div class="modal-title"><h2 id="authHeading">Continue</h2><button id="authClose" type="button">×</button></div><div class="auth-switch"><button data-auth="guest" type="button">Guest</button><button data-auth="login" type="button">Sign in</button><button data-auth="register" type="button">Create account</button></div><form id="authForm" class="stack"><label id="guestNameWrap">Name<input id="guestName" maxlength="80" placeholder="Name"></label><label id="authUserWrap" hidden>Username<input id="authUser" autocomplete="username"></label><label id="authPasswordWrap" hidden>Password<input id="authPassword" type="password" autocomplete="current-password"></label><label id="authEmailWrap" hidden>Email (optional)<input id="authEmail" type="email"></label><p id="authError" class="error"></p><button id="authSubmit" type="submit" class="subtle-primary">Continue</button></form></div></section>
-    <section id="profileModal" class="modal-scrim" hidden role="dialog" aria-modal="true" aria-label="Profile"><div class="modal-card small"><div class="modal-title"><h2>Profile</h2><button id="profileClose" type="button">×</button></div><form id="profileForm" class="stack"><label>Display name<input id="displayName" maxlength="80"></label><label>About<input id="profileBio" maxlength="240"></label><label>Vehicle focus<input id="profileFocus" maxlength="60"></label><label>Profile photo<input id="avatarUpload" type="file" accept="image/jpeg,image/png,image/webp"></label><button type="submit" class="subtle-primary">Save</button></form><div class="button-row"><button id="upgradeButton" type="button" hidden>Protect profile</button><button id="logoutButton" type="button">Sign out</button></div></div></section>
+    <section id="profileModal" class="modal-scrim" hidden role="dialog" aria-modal="true" aria-label="Profile"><div class="modal-card small"><div class="modal-title"><h2>Profile</h2><button id="profileClose" type="button">×</button></div><form id="profileForm" class="stack"><label>Display name<input id="displayName" maxlength="80"></label><label>About<input id="profileBio" maxlength="240"></label><label>Creative focus<input id="profileFocus" maxlength="60"></label><label>Profile photo<input id="avatarUpload" type="file" accept="image/jpeg,image/png,image/webp"></label><button type="submit" class="subtle-primary">Save</button></form><div class="button-row"><button id="upgradeButton" type="button" hidden>Protect profile</button><button id="logoutButton" type="button">Sign out</button></div></div></section>
     <div id="toast" class="toast" role="alert" hidden></div>
   </main>
 </body>

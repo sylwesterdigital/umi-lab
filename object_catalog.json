@@ -1,0 +1,36 @@
+{
+  "person": {"label":"Person & outfit","assemblies":[
+    {"id":"clothing","name":"Clothing","parts":["Jacket","Shirt","Top","Dress","Trousers","Skirt","Coat","Sweater","Belt","Scarf","Hat","Gloves"]},
+    {"id":"footwear","name":"Footwear","parts":["Left shoe","Right shoe","Boots","Socks"]},
+    {"id":"jewellery","name":"Jewellery","parts":["Watch","Ring","Necklace","Bracelet","Earrings","Brooch"]},
+    {"id":"accessories","name":"Accessories","parts":["Sunglasses","Glasses","Handbag","Backpack","Wallet","Phone","Headphones","Keychain"]},
+    {"id":"held","name":"Held objects","parts":["Book","Cup","Tablet","Laptop","Camera","Umbrella"]}
+  ]},
+  "room": {"label":"Room & environment","assemblies":[
+    {"id":"furniture","name":"Furniture","parts":["Desk","Chair","Sofa","Table","Shelf","Cabinet","Stool","Bed"]},
+    {"id":"devices","name":"Devices","parts":["Monitor","Laptop","Keyboard","Mouse","Phone","Tablet","Printer","Speaker","Camera"]},
+    {"id":"lights","name":"Lighting","parts":["Desk lamp","Ceiling lamp","Floor lamp","Light strip"]},
+    {"id":"decor","name":"Decor","parts":["Plant","Artwork","Clock","Vase","Rug","Curtains"]},
+    {"id":"structure","name":"Architecture","parts":["Door","Window","Wall","Floor","Ceiling","Handle"]}
+  ]},
+  "product": {"label":"Product & accessories","assemblies":[
+    {"id":"shell","name":"Housing","parts":["Shell","Front cover","Back cover","Frame","Panel","Lens","Glass","Seal"]},
+    {"id":"interface","name":"Interface","parts":["Display","Button","Dial","Switch","Port","Indicator","Speaker"]},
+    {"id":"electronics","name":"Electronics","parts":["PCB","Battery","Antenna","Sensor","Cable","Motor","Charger"]},
+    {"id":"hardware","name":"Hardware","parts":["Screw","Mount","Hinge","Bracket","Clip","Gasket"]},
+    {"id":"extras","name":"Accessories","parts":["Case","Strap","Dock","Stand","Cover","Adapter"]}
+  ]},
+  "machine": {"label":"Machine & assembly","assemblies":[
+    {"id":"struct","name":"Structure","parts":["Frame","Chassis","Housing","Cover","Panel","Bracket","Fastener"]},
+    {"id":"movement","name":"Motion","parts":["Motor","Gear","Shaft","Bearing","Pulley","Belt","Joint","Wheel","Arm"]},
+    {"id":"power","name":"Power","parts":["Battery","Power supply","Wiring","Connector","Switch","Fuse"]},
+    {"id":"control","name":"Controls","parts":["Controller","PCB","Screen","Sensor","Camera","Button","Antenna"]},
+    {"id":"extras","name":"Extras","parts":["Mount","Handle","Tool","Guard","Seal","Hinge"]}
+  ]},
+  "object": {"label":"General object","assemblies":[
+    {"id":"external","name":"Exterior","parts":["Body","Shell","Cover","Panel","Frame","Trim","Lens","Handle"]},
+    {"id":"functional","name":"Functional","parts":["Display","Button","Port","Motor","Battery","Sensor","Cable","Wheel"]},
+    {"id":"internal","name":"Internal","parts":["Core","Module","Mount","Joint","Fastener","Seal","Bearing"]},
+    {"id":"extras","name":"Accessories","parts":["Case","Stand","Strap","Adapter","Tool","Bag"]}
+  ]}
+}

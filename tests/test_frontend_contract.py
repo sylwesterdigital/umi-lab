@@ -10,7 +10,7 @@ class TabletopFrontendTests(unittest.TestCase):
         self.js=(ROOT/'frontend/js/app.js').read_text()
         self.css=(ROOT/'frontend/css/styles.css').read_text()
     def test_blank_workspace_has_no_legacy_panes(self):
-        self.assertIn('What would you love to drive?',self.page)
+        self.assertIn('What would you like to create?',self.page)
         self.assertIn('id="board"',self.page)
         self.assertIn('id="pictures"',self.page)
         self.assertIn('id="links"',self.page)

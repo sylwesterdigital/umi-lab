@@ -11,3 +11,10 @@ A simple, unbounded photo canvas replaces the legacy gallery/3D editor stack.
 - No annotation sheets, feature panels, chat transcript or 3D proxy car appear on the starting screen.
 
 Photo outputs are visual concepts, not reconstructed 3D meshes or validated manufacturing parts. Provider-dependent image fidelity varies.
+
+
+## Universal workspace (0.2.3)
+- Drop a photo on any occupied region: the new photo is moved to a nearby free location and becomes the active source. Earlier photo positions are not reset.
+- Use envelope eye button to hide/show a generated pack without deleting its assets.
+- Arrange -> Grid / Orbit / Fountain to automatically position visible photos, or Fit to view the visible group. Dragging a photo afterward retains the manual position.
+- Set the active subject in the photo toolbar, and choose the same subject in the component planner. Person, room, product, machine and general-object catalogues list **candidates**, not verified detections. Add a custom item to request something specific.

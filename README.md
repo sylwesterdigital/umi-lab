@@ -1,4 +1,4 @@
-# UMI LAB — Image Table v0.2.2
+# UMI LAB — Universal Image Table v0.2.3
 
 The interface has been rebuilt as a clean, freeform image table. One draggable vehicle photo anchors a family of independently generated angle and component images.
 
@@ -38,3 +38,9 @@ For self-hosted TripoSR and Hunyuan3D, see `docs/GPU_BRIDGE.md`. The bridge is a
 
 ## v0.2.2
 Restored Activity log handler and fixed page-startup controls.
+
+
+## v0.2.3: universal objects
+A new uploaded source photo is positioned in available canvas space, never over an existing cluster. The active subject selector supports vehicles, people/outfits, rooms, products, machines and other objects. The parts planner offers candidate object catalogues per subject; it does not assert that a listed item is present in a photograph. Folder eye controls hide/show packs; Arrange can apply Grid, Orbit or Fountain layouts. Images, hidden pack state, custom candidate items and positions are preserved in project settings.
+
+**Limits:** Image-based brand/product matches are not verified in this release. Age must not be inferred from appearance; use confirmed metadata only. Isolated 3D models require geometry, alignment, licensing and validation before any automatic rigging or assembly.

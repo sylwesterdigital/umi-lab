@@ -8,7 +8,7 @@ class TabletopRegressionTests(unittest.TestCase):
         self.assertNotIn("generateRequest(source,'sheet'",js)
         self.assertIn("generateSequence(angles.map",js)
         self.assertIn("generateSequence(chosen.map",js)
-        self.assertIn("'The exact vehicle shown in the one supplied image'",js)
+        self.assertIn("'The exact subject shown in the one supplied reference image'",js)
     def test_component_contract(self):
         src=(ROOT/'backend/app.py').read_text()
         self.assertIn("elif mode=='component':",src)

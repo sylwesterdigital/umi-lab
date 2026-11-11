@@ -51,6 +51,7 @@ app.config.update(SECRET_KEY=SESSION_KEY,MAX_CONTENT_LENGTH=12*1024*1024,
                   PERMANENT_SESSION_LIFETIME=60*60*24*14)
 store.init(DATA)
 PARTS=json.loads((ROOT/'parts.json').read_text())
+OBJECT_CATALOG=json.loads((ROOT/'object_catalog.json').read_text())
 LOG_DIR=DATA/'logs';LOG_DIR.mkdir(mode=0o700,parents=True,exist_ok=True)
 SERVER_LOG=LOG_DIR/'server.jsonl'
 file_handler=RotatingFileHandler(SERVER_LOG,maxBytes=1_000_000,backupCount=3,encoding='utf-8')
@@ -407,7 +408,7 @@ def projects():
             prompt=str(body.get('prompt') or '').strip()[:10000]
             name=str(body.get('name') or (prompt[:42] if prompt else 'Untitled ride'))[:100]
             kind=str(body.get('kind') or 'car')[:32]
-            if kind not in ('car','motorcycle','aircraft','boat','drone','robot','other'):kind='other'
+            if kind not in ('car','motorcycle','aircraft','boat','drone','robot','other','person','room','product','machine','object'):kind='other'
             pid=store.create_project(conn,session['uid'],name,prompt,kind)
             return jsonify(id=pid),201
         rows=conn.execute('SELECT * FROM projects WHERE user_id=? ORDER BY updated_at DESC LIMIT 80',(session['uid'],)).fetchall()
@@ -429,14 +430,16 @@ def project_detail(pid):
             body=request.get_json(silent=True) or {}
             name=str(body.get('name',row['name'])).strip()[:100]
             prompt=str(body.get('prompt',row['prompt']))[:10000]
+            kind=str(body.get('kind',row['kind']))[:32]
+            if kind not in ('car','motorcycle','aircraft','boat','drone','robot','other','person','room','product','machine','object'):return jsonify(error='Invalid scene type'),400
             settings=body.get('settings',json.loads(row['settings']))
             if not isinstance(settings,dict):return jsonify(error='Invalid settings'),400
             if len(json.dumps(settings))>300000:return jsonify(error='Settings too large'),400
             selected=body.get('selected_asset',row['selected_asset'])
             if selected and not conn.execute('SELECT 1 FROM assets WHERE id=? AND project_id=?',(selected,pid)).fetchone():
                 return jsonify(error='Unknown asset'),400
-            conn.execute('UPDATE projects SET name=?,prompt=?,settings=?,selected_asset=?,updated_at=? WHERE id=?',
-               (name or 'Untitled ride',prompt,json.dumps(settings),selected,int(time.time()),pid));conn.commit()
+            conn.execute('UPDATE projects SET name=?,prompt=?,kind=?,settings=?,selected_asset=?,updated_at=? WHERE id=?',
+               (name or 'Untitled project',prompt,kind,json.dumps(settings),selected,int(time.time()),pid));conn.commit()
             row=store.project_for(conn,session['uid'],pid)
         assets=[dict(r) for r in conn.execute('SELECT id,view,source,mime,created_at FROM assets WHERE project_id=? ORDER BY created_at DESC',(pid,))]
         messages=[dict(r) for r in conn.execute('SELECT role,content,provider,created_at FROM messages WHERE project_id=? ORDER BY rowid ASC LIMIT 80',(pid,))]
@@ -445,7 +448,7 @@ def project_detail(pid):
 
 @app.get('/api/parts')
 @authenticated
-def parts():return jsonify(PARTS)
+def parts():return jsonify({**PARTS,'catalogs':OBJECT_CATALOG})
 
 @app.post('/api/chat')
 @authenticated
@@ -688,9 +691,12 @@ def inference_event(conn,category,provider,model,phase,status,elapsed_ms=0,refer
     conn.commit()
 
 
-def concept_instruction(brief,mode,style,reference_count,system_id='',part_name=''):
-    identity=('CRITICAL: use the supplied reference images as the SAME physical vehicle, preserving body shape, wheelbase, color, materials, features, and graphic style. '
-              if reference_count else 'Design one internally consistent vehicle with a stable design identity. ')
+def concept_instruction(brief,mode,style,reference_count,system_id='',part_name='',subject_type='vehicle'):
+    subject_type=subject_type if subject_type in ('vehicle','person','room','product','machine','object') else 'object'
+    identity=('CRITICAL: use the supplied reference image as the visual authority: preserve the original subject, scene, visible objects, materials, lighting and style. Do not introduce unrelated people, brands or items. '
+              if reference_count else 'Create ONE coherent main image matching the user prompt. ')
+    if subject_type!='vehicle' and mode in ('front_3q','front','rear','side','top','rear_3q'):
+        return f'Create ONE coherent visual of the requested {subject_type}, based on this brief: {brief}. {identity} Show the {mode.replace('_',' ')} view only if meaningful. No captions, typography, grids, diagrams, or inset panels. {style}'.strip()
     if mode=='sheet':
         composition=('Generate ONE LANDSCAPE TECHNICAL BLUEPRINT CONTACT SHEET with EXACTLY SIX equal, clean panels in a 3-column by 2-row grid, '
           'showing the identical vehicle. Panels in reading order: (1) FRONT straight orthographic, (2) REAR straight orthographic, '
@@ -707,14 +713,14 @@ def concept_instruction(brief,mode,style,reference_count,system_id='',part_name=
         composition=(f'Generate ONE focused system sheet for the {system_name} of the same vehicle. Highlight the relevant areas, include 3 to 6 supporting detail crops or isolated elements as needed, and add short labels for the major visible components in that system. Keep the rest of the vehicle subdued for context.')
     elif mode=='component':
         part=(part_name or 'selected component')[:80]
-        composition=(f'Using exactly the supplied single vehicle reference photograph, produce ONE photorealistic isolated component: {part}. '
+        composition=(f'Using exactly the supplied single reference photograph, produce ONE photorealistic isolated object/component: {part}. '
           'Keep the exact same design language, material, finish, color and proportions. Show only that one component, large and centered, '
-          'against a simple neutral light studio background. Do not include the complete vehicle, other parts, inset views, grids, annotations, arrows, captions, diagrams, writing or watermarks. '
+          'against a simple neutral light studio background. Do not include the complete source scene or other parts, inset views, grids, annotations, arrows, captions, diagrams, writing or watermarks. '
           'ONE component per image, not a component sheet. For parts not visible in the reference, provide a plausible visual concept, never invented dimensions or manufacturing claims.')
     elif mode=='part':
         part=(part_name or 'selected part')[:80]
         if reference_count==1:
-            composition=(f'Edit the provided source image of the same vehicle and keep the SAME composition, camera angle, framing, lighting, paint color, reflections, and background. '
+            composition=(f'Edit the provided source image of the same subject and keep the SAME composition, camera angle, framing, lighting, paint color, reflections, and background. '
               f'Apply ONLY the requested component change related to "{part}". If the request asks for exclusions such as no tyres, no glass, or only chassis, remove or hide those excluded components while preserving the rest of the image. '
               'Return ONE clean image only. Do NOT create a contact sheet, multiple views, arrows, labels, captions, or any other text.')
         else:
@@ -737,7 +743,9 @@ def concepts():
         try:preset,config,key=get_provider(conn,provider_id,body.get('temp_provider'))
         except ProviderError as exc:return jsonify(error=str(exc)),400
         if not preset.get('images'):return jsonify(error='Choose an image generation provider'),400
-        brief=str(body.get('prompt') or row['prompt'] or 'Vehicle design')[:3000]
+        subject_type=str(body.get('subject_type') or ('vehicle' if row['kind'] in ('car','motorcycle','aircraft','boat','drone') else row['kind']))[:24]
+        if subject_type not in ('vehicle','person','room','product','machine','object'):return jsonify(error='Invalid scene type'),400
+        brief=str(body.get('prompt') or row['prompt'] or 'Creative object design')[:3000]
         style=str(body.get('instructions') or '').strip()[:700]
         ids=body.get('reference_ids')
         if ids is None:ids=[row['selected_asset']] if row['selected_asset'] else []
@@ -761,8 +769,8 @@ def concepts():
         if mode=='component' and len(ids)!=1:return jsonify(error='Select exactly one source photo for component images'),400
         # When actual images are supplied, they define vehicle identity; historical
         # chat/project prompts may describe a different car and must not override them.
-        if references:brief='The exact same vehicle shown in the supplied reference image(s)'
-        instruction=concept_instruction(brief,mode,style,len(references),system_id,part_name)
+        if references:brief='The exact same subject shown in the supplied reference image(s)'
+        instruction=concept_instruction(brief,mode,style,len(references),system_id,part_name,subject_type)
         model=config.get('image_model') or preset.get('image_model') or ''
         started=time.monotonic()
         inference_event(conn,'image',provider_id,model,'started',102,0,len(references))
@@ -890,7 +898,9 @@ def make_manifest(row):
     angle_modes={'front','rear','side','top','front_3q','rear_3q'}
     individual_angles=sum(1 for n in photo_nodes if isinstance(n,dict) and n.get('kind')=='angle' and n.get('label') in ('Front','Rear','Left side','Top','Front ¾','Rear ¾'))
     parts=[]
-    for group in PARTS['assemblies']:
+    scene_type=board.get('subjectType') or ('vehicle' if row['kind'] in ('car','motorcycle','aircraft','boat','drone') else row['kind'])
+    assemblies=PARTS['assemblies'] if scene_type=='vehicle' else OBJECT_CATALOG.get(scene_type,OBJECT_CATALOG['object'])['assemblies']
+    for group in assemblies:
         group_status='mapped' if workflow.get('annotated_assets') else 'concept'
         if group['id'] in system_sheets: group_status='system_sheet'
         for i,name in enumerate(group['parts']):

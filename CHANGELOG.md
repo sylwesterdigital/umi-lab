@@ -1,3 +1,11 @@
+## 0.2.3 — Universal workspace
+- Place new uploads in empty photo space without resetting previous images.
+- Show/hide packs using eye buttons on envelope covers and Packs drawer.
+- Arrange visible photos using Grid, Orbit, Fountain or Fit.
+- Generate views and parts for people, rooms, products, machines, and general objects.
+- Add editable custom candidate objects and preserve per-image scene category in saved layout.
+- Preserve server images, per-project layout, parts workflow and 3D gateway.
+
 # UMI LAB Changelog
 
 ## 0.2.2

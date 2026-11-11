@@ -34,3 +34,16 @@ body[data-theme=warm]{--bg:#29221e;--surface:#3e312a;--ink:#f3ebdf;--muted:#c3b5
 .pack-items{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;max-height:38vh;overflow:auto;margin:12px 0}.pack-item{display:flex;flex-direction:column;gap:4px;align-items:center;min-width:0;padding:5px;background:#71817b17;border:1px solid #798b8266;border-radius:5px}.pack-item img,.pack-item span{width:100%;height:55px;object-fit:contain;background:#ebece8;color:#afbbb6;display:grid;place-items:center}.pack-item small{font-size:10px;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;max-width:100%}
 .mesh-task{display:flex;flex-direction:column;gap:8px;padding:10px;border-bottom:1px solid #67796d47;font-size:11px}.mesh-task a{color:#9dcbd0}.mesh-task button{align-self:start;background:#e1e5de;color:#26322e;padding:5px 10px;border-radius:8px}
 @media(max-width:700px){.pack-shelf{top:65px;left:6px;max-height:31vh}.envelope{width:77px;min-height:53px}.envelope img{width:18px;height:18px}.envelope strong{font-size:9px}.parts-checklist{grid-template-columns:1fr}.queue-rest{bottom:150px;max-width:96vw;font-size:10px}}
+
+/* v0.2.3: quiet layout menu and visibility toggles on photo envelopes */
+.arrange-tools{position:absolute;z-index:13;top:78px;right:22px;display:flex;flex-direction:column;align-items:end;gap:5px}
+.arrange-tools>button{font-size:12px;padding:9px 13px;background:#202928d9;border:1px solid #80908955;border-radius:24px;color:#c8d1ce;box-shadow:0 6px 20px #0003;backdrop-filter:blur(18px)}
+.arrange-menu{display:flex;flex-direction:column;min-width:135px;background:#202928f3;border:1px solid #80908955;border-radius:12px;padding:5px;box-shadow:0 8px 22px #0005}
+.arrange-menu button{text-align:left;padding:9px 10px;border-radius:7px;font-size:12px}.arrange-menu button:hover{background:#ffffff13}
+.envelope-wrap{position:relative;width:120px;flex:none}.envelope-wrap .envelope{width:100%}.envelope-wrap .eye-button{position:absolute;z-index:2;top:4px;left:4px;width:28px;height:25px;display:grid;place-items:center;background:#172320df;border:1px solid #d8e2d044;border-radius:7px;color:#e8f4ed;font-size:13px}
+.envelope-wrap.is-hidden .envelope{filter:grayscale(.7);opacity:.48}.envelope-wrap .eye-button[aria-pressed="true"]{background:#52625b;color:#fff}
+.custom-part{display:flex;gap:6px}.custom-part input{flex:1;min-width:0;font-size:12px}.custom-part button{border:1px solid #71808070;padding:7px 13px;border-radius:10px;font-size:12px;background:#e2e6df17}
+@media(max-width:700px){.arrange-tools{top:70px;right:10px}.envelope-wrap{width:82px}.envelope-wrap .eye-button{width:21px;height:21px;font-size:11px}}
+
+.photo-actions #sceneKind{min-width:85px;max-width:112px;border:1px solid #ffffff25;border-radius:18px;padding:6px 7px;color:#d1ddda;font-size:11px;background:#ffffff0b}
+.pack-line-row{display:flex;align-items:center;gap:7px}.pack-line-row .pack-line{flex:1}.pack-list-eye{padding:8px;border:1px solid #81998a69;border-radius:9px;color:var(--muted);font-size:11px}

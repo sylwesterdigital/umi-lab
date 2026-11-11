@@ -237,7 +237,7 @@ class FlaskTest(unittest.TestCase):
                 'reference_ids':[source],'source_asset_id':source})
         self.assertEqual(done.status_code,200,done.json)
         prompt=gen.call_args.args[3]
-        self.assertIn('same vehicle shown in the supplied reference',prompt)
+        self.assertIn('same subject shown in the supplied reference',prompt)
         self.assertNotIn('red sports car',prompt)
         self.assertEqual(done.json['source_asset_id'],source)
         self.assertEqual(len(gen.call_args.kwargs['reference_images']),1)
