@@ -23,3 +23,11 @@ Photo outputs are visual concepts, not reconstructed 3D meshes or validated manu
 Select tool → marquee → multi-photo action bar. Move to pack creates or reuses an envelope. Pack removal archives the graph placement only; the underlying media remains. History is stored in SQLite with a bounded 60-revision timeline and redo cursor, visible by the two arrow buttons.
 
 AI scene analysis is opt-in and does not force a predetermined object category. Its output is uncertain visual metadata, not a price, brand, age, or engineering certification.
+
+
+## v0.2.6
+- Envelopes are part of the infinite canvas, so they pan and zoom with photos and persist world coordinates.
+- Per-image documents store full AI descriptions/model attribution in SQLite and are exportable.
+- A 3D task submitted to AHOLO, Tripo, Meshy or a configured GPU creates a linked status card; the result is not ready until the provider finishes and UMI downloads the file.
+- Completed GLB models can be previewed in-browser and optionally shown as a background scene. Provider ZIP results expose a bounded GLB preview when present.
+- Uploaded MP4/WebM files have a basic viewer; UMI does not render videos through provider APIs in this release.

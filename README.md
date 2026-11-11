@@ -53,3 +53,7 @@ A new uploaded source photo is positioned in available canvas space, never over 
 - Undo with Cmd/Ctrl+Z; Redo with Cmd/Ctrl+Shift+Z. History is stored per project in SQLite.
 - Select a photo and click **Analyze** to ask a configured multimodal chat model for an editable candidate inventory of objects and materials. A model refusal does not block the image or project. Analysis is an AI estimate and is not market verification.
 - Images and model data are retained through updates; the watcher manages deployment and backups.
+
+
+## v0.2.6
+Per-image document histories, world-positioned envelopes, linked 3D task previews and optional scene backdrop, plus MP4/WebM viewing. Server integration tests are mandatory during Ubuntu deployment.

@@ -46,7 +46,7 @@ def persistent_key(filename, env_name, generator):
 SESSION_KEY=persistent_key('.session-key','UMI_SESSION_KEY',lambda:secrets.token_urlsafe(48).encode())
 CRYPT=Fernet(persistent_key('.fernet-key','UMI_FERNET_KEY',Fernet.generate_key))
 app=Flask(__name__,static_folder=str(ROOT/'frontend'),static_url_path='/static')
-app.config.update(SECRET_KEY=SESSION_KEY,MAX_CONTENT_LENGTH=12*1024*1024,
+app.config.update(SECRET_KEY=SESSION_KEY,MAX_CONTENT_LENGTH=23*1024*1024,
                   SESSION_COOKIE_HTTPONLY=True,SESSION_COOKIE_SAMESITE='Strict',
                   SESSION_COOKIE_SECURE=os.environ.get('UMI_HTTPS','0')=='1',
                   PERMANENT_SESSION_LIFETIME=60*60*24*14)
@@ -468,6 +468,24 @@ def analyze_scene(pid):
     return jsonify(report=report,asset_id=aid)
 
 
+def save_asset_document(conn, pid, aid, kind, provider, model, prompt, content):
+    document_id=store.new_id()
+    conn.execute(
+        'INSERT INTO asset_documents(id,asset_id,project_id,user_id,kind,provider,model,prompt,content,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)',
+        (document_id,aid,pid,session['uid'],kind[:32],provider[:60],model[:120],prompt[:3000],content[:15000],int(time.time()))
+    )
+    conn.commit()
+    return document_id
+
+@app.get('/api/projects/<pid>/assets/<aid>/documents')
+@authenticated
+def list_asset_documents(pid, aid):
+    with store.connect(DATA) as conn:
+        if not store.project_for(conn,session['uid'],pid):abort(404)
+        if not conn.execute('SELECT 1 FROM assets WHERE id=? AND project_id=?',(aid,pid)).fetchone():abort(404)
+        rows=conn.execute('SELECT id,kind,provider,model,prompt,content,created_at FROM asset_documents WHERE project_id=? AND asset_id=? AND user_id=? ORDER BY created_at DESC LIMIT 80',(pid,aid,session['uid'])).fetchall()
+    return jsonify(documents=[dict(r) for r in rows])
+
 @app.post('/api/projects/<pid>/visual-query')
 @authenticated
 def visual_query(pid):
@@ -486,6 +504,7 @@ def visual_query(pid):
             started=time.monotonic()
             answer=visual_question(preset,config,key,blob,asset['mime'],question)
             inference_event(conn,'visual-query',provider_id,config.get('model') or preset.get('model',''),'completed',200,round((time.monotonic()-started)*1000),1)
+            save_asset_document(conn,pid,aid,'visual-query',provider_id,config.get('model') or preset.get('model',''),question,answer)
         except (ProviderError,OSError,ValueError) as exc:return jsonify(error=str(exc)),422
     return jsonify(answer=answer,asset_id=aid,provider=provider_id)
 
@@ -645,15 +664,31 @@ def save_asset(conn,pid,image_bytes,mime,view,source):
 def upload():
     pid=str(request.form.get('project_id',''))
     image=request.files.get('image')
-    if not image:return jsonify(error='Choose a JPG, PNG or WebP image'),400
-    if image.mimetype not in ('image/jpeg','image/png','image/webp'):
-        return jsonify(error='Only JPG, PNG and WebP supported'),400
-    content=image.read(10*1024*1024)
+    if not image:return jsonify(error='Choose an image or a short video'),400
+    allowed={'image/jpeg','image/png','image/webp','video/mp4','video/webm'}
+    if image.mimetype not in allowed:return jsonify(error='Only JPG, PNG, WebP, MP4 and WebM supported'),400
+    content=image.read(21*1024*1024)
     with store.connect(DATA) as conn:
         if not store.project_for(conn,session['uid'],pid):abort(404)
-        aid,err=save_asset(conn,pid,content,image.mimetype,'reference','upload')
-    if err:return jsonify(error=err),400
-    return jsonify(id=aid,url='/api/media/'+aid),201
+        if image.mimetype.startswith('video/'):
+            if len(content)>20*1024*1024:return jsonify(error='Video exceeds 20 MB'),400
+            if image.mimetype=='video/mp4' and not (len(content)>12 and content[4:8]==b'ftyp'):
+                return jsonify(error='Invalid MP4 file'),400
+            if image.mimetype=='video/webm' and not content.startswith(bytes.fromhex('1a45dfa3')):
+                return jsonify(error='Invalid WebM file'),400
+            aid=store.new_id();ext='mp4' if image.mimetype=='video/mp4' else 'webm'
+            file=MEDIA/(aid+'.'+ext)
+            with file.open('xb') as output:output.write(content)
+            os.chmod(file,0o600)
+            conn.execute('INSERT INTO assets VALUES(?,?,?,?,?,?,?)',
+                         (aid,pid,file.name,image.mimetype,'video','upload',int(time.time())))
+            conn.commit()
+            view='video'
+        else:
+            aid,err=save_asset(conn,pid,content,image.mimetype,'reference','upload')
+            if err:return jsonify(error=err),400
+            view='reference'
+    return jsonify(id=aid,url='/api/media/'+aid,view=view),201
 
 @app.post('/api/assets/region')
 @authenticated
@@ -863,6 +898,7 @@ def concepts():
             asset_view={'sheet':'six_view_sheet','annotate':'annotated_parts_map','system':'system_sheet','part':'isolated_part','component':'component','variation':'variation'}.get(mode,mode)
             aid,err=save_asset(conn,pid,content,mime, asset_view,'ai:'+provider_id)
             if err:raise ProviderError(err)
+            save_asset_document(conn,pid,aid,'image-generation',provider_id,model,instruction,'Generated from source '+str(source_id or (ids[0] if ids else 'prompt'))+'; mode '+mode+'; view '+str(asset_view))
             # Maintain active source: generating a derivative must not silently change the reference.
             if row['selected_asset']:
                 conn.execute('UPDATE projects SET selected_asset=? WHERE id=?',(row['selected_asset'],pid))
@@ -1032,7 +1068,7 @@ def list_mesh_tasks(pid):
     with store.connect(DATA) as conn:
         if not store.project_for(conn,session['uid'],pid):abort(404)
         rows=conn.execute('SELECT id,asset_id,provider,label,status,model_file,error,credits_est,created_at,updated_at FROM mesh_tasks WHERE project_id=? AND user_id=? ORDER BY created_at DESC',(pid,session['uid'])).fetchall()
-    return jsonify(tasks=[{**dict(x),'download_url':'/api/mesh-tasks/'+x['id']+'/download' if x['model_file'] else None} for x in rows])
+    return jsonify(tasks=[{**dict(x),'download_url':'/api/mesh-tasks/'+x['id']+'/download' if x['model_file'] else None,'preview_url':'/api/mesh-tasks/'+x['id']+'/preview' if x['model_file'] else None} for x in rows])
 
 @app.post('/api/projects/<pid>/mesh-tasks')
 @authenticated
@@ -1049,6 +1085,7 @@ def create_mesh_task(pid):
         if not store.project_for(conn,session['uid'],pid):abort(404)
         asset=conn.execute('SELECT filename,mime FROM assets WHERE id=? AND project_id=?',(aid,pid)).fetchone()
         if not asset:return jsonify(error='Choose a generated image from this project'),400
+        if not asset['mime'].startswith('image/'):return jsonify(error='3D generation requires a still image; choose a photo'),400
         existing=conn.execute("SELECT id,status FROM mesh_tasks WHERE user_id=? AND project_id=? AND asset_id=? AND provider=? AND status NOT IN ('FAILED','CANCELED') ORDER BY created_at DESC LIMIT 1",(session['uid'],pid,aid,provider_id)).fetchone()
         if existing:return jsonify(error='3D task already exists for this image and provider ('+existing['status']+'). Refresh it before resubmitting.'),409
         try:preset,config,key=get_provider(conn,provider_id,body.get('temp_provider'))
@@ -1095,6 +1132,28 @@ def refresh_mesh_task(task_id):
         conn.commit()
     return jsonify(id=task_id,status=status,download_url='/api/mesh-tasks/'+task_id+'/download' if filename else None,error=error)
 
+@app.get('/api/mesh-tasks/<task_id>/preview')
+@authenticated
+def preview_mesh_task(task_id):
+    with store.connect(DATA) as conn:
+        row=conn.execute('SELECT model_file,label FROM mesh_tasks WHERE id=? AND user_id=?',(task_id,session['uid'])).fetchone()
+    if not row or not row['model_file']:abort(404)
+    path=MESHES/row['model_file']
+    if not path.is_file():abort(404)
+    if path.suffix.lower()=='.glb':
+        return send_file(path,mimetype='model/gltf-binary',as_attachment=False)
+    if path.suffix.lower()!='.zip':abort(404)
+    # No extraction to the filesystem: the GLB is read from a bounded ZIP member.
+    try:
+        with zipfile.ZipFile(path) as z:
+            candidates=[m for m in z.infolist() if m.filename.lower().endswith('.glb') and not m.is_dir() and m.file_size<=60_000_000]
+            if not candidates:abort(404)
+            member=sorted(candidates,key=lambda x:x.file_size,reverse=True)[0]
+            with z.open(member) as file:blob=file.read(60_000_001)
+        if len(blob)>60_000_000 or not blob.startswith(b'glTF'):abort(422)
+    except (zipfile.BadZipFile,OSError,RuntimeError):abort(422)
+    return send_file(io.BytesIO(blob),mimetype='model/gltf-binary',as_attachment=False,download_name='model.glb')
+
 @app.get('/api/mesh-tasks/<task_id>/download')
 @authenticated
 def download_mesh_task(task_id):
@@ -1132,6 +1191,12 @@ def export(pid):
                 if seg.is_file():z.write(seg,'segmentations/'+rid+'.json')
         with store.connect(DATA) as conn:
             meshes=conn.execute('SELECT id,model_file,label,status FROM mesh_tasks WHERE project_id=? AND user_id=?',(pid,session['uid'])).fetchall()
+        with store.connect(DATA) as conn:
+            documents=conn.execute('SELECT asset_id,kind,provider,model,prompt,content,created_at FROM asset_documents WHERE project_id=? AND user_id=? ORDER BY created_at',(pid,session['uid'])).fetchall()
+        for doc in documents:
+            doc_obj=dict(doc)
+            name='documents/'+doc_obj['asset_id']+'/'+str(doc_obj['created_at'])+'-'+store.new_id()[:8]+'.json'
+            z.writestr(name,json.dumps(doc_obj,indent=2))
         z.writestr('assembly_parts.json',json.dumps([{'id':m['id'],'label':m['label'],'status':m['status'],'mesh':m['model_file'] or None,'transform':None} for m in meshes],indent=2))
         for m in meshes:
             if m['model_file'] and (MESHES/m['model_file']).is_file():z.write(MESHES/m['model_file'],'models/'+m['id']+Path(m['model_file']).suffix)

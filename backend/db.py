@@ -52,6 +52,14 @@ def init(data_dir):
         );
         CREATE INDEX IF NOT EXISTS idx_messages_project ON messages(project_id,created_at);
         CREATE INDEX IF NOT EXISTS idx_assets_project ON assets(project_id,created_at);
+        CREATE TABLE IF NOT EXISTS asset_documents (
+          id TEXT PRIMARY KEY, asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          user_id TEXT NOT NULL, kind TEXT NOT NULL, provider TEXT NOT NULL DEFAULT '',
+          model TEXT NOT NULL DEFAULT '', prompt TEXT NOT NULL DEFAULT '',
+          content TEXT NOT NULL, created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_asset_documents_asset ON asset_documents(asset_id,created_at);
         CREATE TABLE IF NOT EXISTS events (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           user_id TEXT NOT NULL, session_id TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL,

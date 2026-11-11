@@ -1,5 +1,15 @@
 # UMI LAB changelog
 
+## 0.2.6
+- Packs are freeform canvas objects, with persistent world coordinates.
+- Corrected per-photo three-dot alignment.
+- Full image analysis and generation metadata are saved as per-image SQLite documents and exported.
+- Generated 3D tasks appear as linked canvas cards, with a preview and scene option when a GLB is ready.
+- AHOLO 3D status remains clearly queued until the file is actually downloaded.
+- Image-view prompts are more explicit about distinct views.
+
+# UMI LAB changelog
+
 ## v0.2.4 — Universal scene intelligence and recoverable canvas
 - Removed the visible hardcoded subject picker; optional image analysis creates a free-form inventory of visible items, materials and likely components via an already configured vision model.
 - Added rectangular multi-select, Shift-click selection and group dragging.
