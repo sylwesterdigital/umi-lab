@@ -30,9 +30,11 @@ PRESETS = [
  {'id':'ollama','name':'Ollama','protocol':'openai','base_url':'http://127.0.0.1:11434/v1','model':'llama3.2','image_model':'','images':False,'local':True},
  {'id':'lmstudio','name':'LM Studio','protocol':'openai','base_url':'http://127.0.0.1:1234/v1','model':'local-model','image_model':'','images':False,'local':True},
  {'id':'vllm','name':'vLLM','protocol':'openai','base_url':'http://127.0.0.1:8000/v1','model':'local-model','image_model':'','images':False,'local':True},
- {'id':'tripo','name':'Tripo 3D','protocol':'tripo','base_url':'https://api.tripo3d.ai/v2/openapi','model':'Turbo-v1.0','image_model':'','images':False,'mesh3d':True},
- {'id':'aholo','name':'AHOLO Lux3D','protocol':'aholo','base_url':'https://api.aholo.ai','model':'G1','image_model':'','images':False,'mesh3d':True},
+ {'id':'tripo','name':'Tripo 3D','protocol':'tripo','base_url':'https://openapi.tripo3d.ai/v3','model':'v3.1-20260211','image_model':'','images':False,'mesh3d':True},
+ {'id':'aholo','name':'AHOLO Lux3D','protocol':'aholo','base_url':'https://api.aholo.ai/global','model':'G1','image_model':'','images':False,'mesh3d':True},
  {'id':'meshy','name':'Meshy 3D','protocol':'meshy','base_url':'https://api.meshy.ai','model':'meshy-7.1','image_model':'','images':False,'mesh3d':True},
+ {'id':'gpu-triposr','name':'GPU · TripoSR','protocol':'gpu3d','base_url':'','model':'TripoSR','image_model':'','images':False,'mesh3d':True,'access_note':'Optional compatible GPU bridge. Configure a trusted HTTPS endpoint. Needs your GPU deployment.'},
+ {'id':'gpu-hunyuan','name':'GPU · Hunyuan3D','protocol':'gpu3d','base_url':'','model':'Hunyuan3D','image_model':'','images':False,'mesh3d':True,'access_note':'Optional compatible GPU bridge. Configure a trusted HTTPS endpoint. Needs your GPU deployment.'},
  {'id':'custom','name':'Custom Router','protocol':'openai','base_url':'','model':'','image_model':'','images':False},
 ]
 BY_ID = {p['id']:p for p in PRESETS}
@@ -177,14 +179,15 @@ def generate_image(preset, config, key, prompt, reference_images=None):
 def check_api(preset,config,key):
     """Non-billable endpoint only. Never create a generation job as a key test."""
     base=safe_base_url(config.get('base_url') or preset['base_url'])
-    if not key and not preset.get('local'):
+    if not key and not preset.get('local') and preset['id'] not in ('gpu-triposr','gpu-hunyuan'):
         raise ProviderError('Provide a key or use a saved credential')
     try:import requests
     except ImportError as exc:raise ProviderError('Install backend requirements first') from exc
     ident=preset['id']
-    if ident=='tripo':path='/user/balance';headers={'Authorization':'Bearer '+key}
+    if ident in ('gpu-triposr','gpu-hunyuan'):path='/health';headers={'Authorization':'Bearer '+(key or 'local')}
+    elif ident=='tripo':path='/account/balance';headers={'Authorization':'Bearer '+key}
     elif ident=='meshy':path='/openapi/v1/balance';headers={'Authorization':'Bearer '+key}
-    elif ident=='aholo':path='/global/asset/v1/token';headers={'Authorization':key}
+    elif ident=='aholo':path='/asset/v1/token' if base.endswith('/global') else '/global/asset/v1/token';headers={'Authorization':key}
     elif preset['protocol']=='gemini':path='/models';headers={'x-goog-api-key':key}
     elif preset['protocol']=='anthropic':path='/models';headers={'x-api-key':key,'anthropic-version':'2023-06-01'}
     else:path='/models';headers={'Authorization':'Bearer '+(key or 'local')}

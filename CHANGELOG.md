@@ -1,5 +1,14 @@
 # UMI LAB Changelog
 
+## 0.2.1
+- Basic, Medium, Advanced and Complete plans (222 catalogue components); save ungenerated placeholders without paying for them.
+- Persistent per-image generation queue with Pause, Resume, Retry and Follow camera.
+- Visual image packs with names, notes and saved collection metadata.
+- Searchable image library and filters for angles, components and references.
+- Per-part 3D tasks for Meshy, Tripo v3, AHOLO Lux3D, and optional TripoSR/Hunyuan3D GPU bridge; status refresh and private model downloads.
+- Meshy credit estimator; variable provider/GPU costs are shown as unquoted until verified.
+- Existing v0.2.0 generated photos are reused and can be grouped into legacy packs.
+
 ## v0.2.0 — Fresh image table (2026-11-11)
 
 - Replaced the crowded gallery/editor with an open draggable image canvas.

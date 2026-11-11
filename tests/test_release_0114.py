@@ -7,7 +7,7 @@ class TabletopRegressionTests(unittest.TestCase):
         js=(ROOT/'frontend/js/app.js').read_text()
         self.assertNotIn("generateRequest(source,'sheet'",js)
         self.assertIn("generateSequence(angles.map",js)
-        self.assertIn("generateSequence(items,'component')",js)
+        self.assertIn("generateSequence(chosen.map",js)
         self.assertIn("'The exact vehicle shown in the one supplied image'",js)
     def test_component_contract(self):
         src=(ROOT/'backend/app.py').read_text()

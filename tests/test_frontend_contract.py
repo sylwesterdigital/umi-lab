@@ -23,10 +23,10 @@ class TabletopFrontendTests(unittest.TestCase):
     def test_separate_angle_and_part_images(self):
         for marker in ("['front','Front'", "['rear','Rear'", "['side','Left side'", "['top','Top'", "['front_3q','Front ¾'", "['rear_3q','Rear ¾'"):
             self.assertIn(marker,self.js)
-        self.assertIn("{mode:'component',label,part_name:label}",self.js)
+        self.assertIn("mode:'component',part_name:x.label",self.js)
         self.assertIn('source_asset_id:source||null',self.js)
         self.assertIn('reference_ids:source?[source]:[]',self.js)
-        self.assertIn("state.nodes.some(n=>n.parent===source&&n.kind===kind&&n.label===it.label)",self.js)
+        self.assertIn("state.nodes.find(n=>n.parent===parent&&n.kind===kind",self.js)
         self.assertIn('await saveTable()',self.js)
         self.assertIn('state.stopAfter',self.js)
     def test_photoprint_world_and_minimal_feedback(self):

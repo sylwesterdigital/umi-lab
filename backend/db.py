@@ -58,6 +58,16 @@ def init(data_dir):
           level TEXT NOT NULL, action TEXT NOT NULL, status INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_events_user ON events(user_id,id);
+        CREATE TABLE IF NOT EXISTS mesh_tasks (
+          id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+          user_id TEXT NOT NULL REFERENCES users(id), provider TEXT NOT NULL,
+          provider_task_id TEXT NOT NULL, label TEXT NOT NULL, status TEXT NOT NULL,
+          model_file TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '',
+          credits_est INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_mesh_tasks_project ON mesh_tasks(project_id,created_at);
+
         ''')
         columns={r['name'] for r in db.execute('PRAGMA table_info(users)')}
         for name,definition in {

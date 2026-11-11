@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#16191c">
-  <meta name="umi-version" content="0.2.0">
+  <meta name="umi-version" content="0.2.1">
   <title>UMI LAB — Image table</title>
   <link rel="stylesheet" href="/static/css/styles.css">
   <script defer src="/static/js/app.js"></script>
@@ -13,7 +13,7 @@
 <body>
   <main id="studio">
     <header class="topbar">
-      <div class="brand"><button id="homeButton" title="Return to the table" type="button">UMI LAB</button><button id="versionButton" title="Release notes" type="button">0.2.0</button></div>
+      <div class="brand"><button id="homeButton" title="Return to the table" type="button">UMI LAB</button><button id="versionButton" title="Release notes" type="button">0.2.1</button></div>
       <div class="top-controls"><button id="workspaceButton" type="button" title="Workspace, models and projects">Workspace <span aria-hidden="true">⌄</span></button><button id="profileButton" type="button" title="Profile"><span id="profileInitial">○</span><img id="profileImage" alt="" hidden></button></div>
     </header>
 
@@ -31,8 +31,11 @@
       <button id="makeMain" type="button" hidden>Make main</button>
       <button id="anglesButton" type="button">Generate angles</button>
       <button id="partsButton" type="button">Generate parts</button>
-      <button id="removePhoto" type="button" title="Remove photo from table (image stays in library)">Remove</button>
+      <button id="generateThis" type="button" hidden>Generate this</button><button id="model3dButton" type="button" hidden>Make 3D</button><button id="removePhoto" type="button" title="Remove photo from table (image stays in library)">Remove</button>
     </div>
+
+    <div id="packShelf" class="pack-shelf" hidden aria-label="Image packs"></div>
+    <div id="queueRest" class="queue-rest" hidden><span id="queueRestText"></span><button id="resumeQueue" type="button">Resume</button><button id="retryFailed" type="button" hidden>Retry failed</button></div>
 
     <form id="promptForm" class="prompt-card">
       <button id="uploadButton" type="button" title="Add an image" aria-label="Add image">＋</button>
@@ -43,13 +46,15 @@
       <input id="uploadInput" type="file" accept="image/jpeg,image/png,image/webp" hidden>
     </form>
 
-    <div id="jobStatus" class="job-status" hidden role="status" aria-live="polite"><span class="job-orb" aria-hidden="true"></span><div class="job-body"><strong id="jobTitle">Generating</strong><span id="jobDetail">Connecting to image model…</span><div class="job-track"><span id="jobProgress"></span></div></div><span id="jobTimer">00:00</span><button id="stopJob" type="button" title="Stop after this image">Stop</button></div>
+    <div id="jobStatus" class="job-status" hidden role="status" aria-live="polite"><span class="job-orb" aria-hidden="true"></span><div class="job-body"><strong id="jobTitle">Generating</strong><span id="jobDetail">Connecting to image model…</span><div class="job-track"><span id="jobProgress"></span></div></div><span id="jobTimer">00:00</span><label class="follow-toggle"><input id="followMode" type="checkbox" checked> Follow</label><button id="stopJob" type="button" title="Pause after this image">Pause</button></div>
 
     <aside id="drawer" class="drawer" hidden aria-label="Workspace drawer">
       <div class="drawer-top"><h2 id="drawerTitle">Workspace</h2><button id="drawerClose" type="button" title="Close">×</button></div>
-      <nav class="drawer-tabs" aria-label="Workspace sections"><button data-tab="projects" type="button">Projects</button><button data-tab="sources" type="button">Images</button><button data-tab="models" type="button">Models</button><button data-tab="logs" type="button">Activity</button><button data-tab="appearance" type="button">Theme</button><button data-tab="updates" type="button">Updates</button></nav>
+      <nav class="drawer-tabs" aria-label="Workspace sections"><button data-tab="projects" type="button">Projects</button><button data-tab="sources" type="button">Images</button><button data-tab="packs" type="button">Packs</button><button data-tab="mesh" type="button">3D</button><button data-tab="models" type="button">Models</button><button data-tab="logs" type="button">Activity</button><button data-tab="appearance" type="button">Theme</button><button data-tab="updates" type="button">Updates</button></nav>
       <section id="tab-projects" class="tab-content" hidden><div class="button-row"><button id="newProject" class="subtle-primary" type="button">New blank table</button><button id="exportProject" type="button">Export project kit</button></div><div id="projectsList" class="stack"></div></section>
-      <section id="tab-sources" class="tab-content" hidden><p class="quiet">Stored images stay available even when removed from the table. Choose an image to make it the centre photo.</p><div id="sourceList" class="source-grid"></div></section>
+      <section id="tab-sources" class="tab-content" hidden><p class="quiet">Images stay on the server even when removed from the table.</p><input id="imageSearch" type="search" placeholder="Search image names, systems and views…" aria-label="Search images"><label>Filter<select id="imageFilter"><option value="all">All saved images</option><option value="angle">Angles</option><option value="component">Parts</option><option value="reference">References</option></select></label><div id="sourceCount" class="quiet"></div><div id="sourceList" class="source-grid"></div></section>
+      <section id="tab-packs" class="tab-content" hidden><div id="packList" class="pack-list"></div><div id="packDetail" hidden><form id="packForm" class="stack"><label>Pack name<input id="packName" maxlength="75"></label><label>Notes<input id="packNotes" maxlength="320"></label><button type="submit" class="subtle-primary">Save pack</button></form><div id="packStats" class="quiet"></div><div id="packItems" class="pack-items"></div><button id="packToBoard" type="button">Show pack on canvas</button></div></section>
+      <section id="tab-mesh" class="tab-content" hidden><p class="quiet">Generate one 3D model from a saved part image using Tripo, AHOLO, Meshy or your own GPU. Part assembly and manufacturing validation are separate steps.</p><label>Provider<select id="meshProvider"><option value="tripo">Tripo 3D</option><option value="aholo">AHOLO Lux3D</option><option value="meshy">Meshy 7.1</option><option value="gpu-triposr">GPU · TripoSR</option><option value="gpu-hunyuan">GPU · Hunyuan3D</option></select></label><label class="check-row"><input id="meshTextured" type="checkbox"> Generate textures</label><div id="meshCost" class="quiet"></div><div class="button-row"><button id="refreshMeshes" type="button">Refresh 3D tasks</button></div><div id="meshTaskList" class="stack"></div></section>
       <section id="tab-models" class="tab-content" hidden>
         <label>Provider<select id="providerSelect"></select></label><div id="providerInfo" class="quiet"></div>
         <form id="providerForm" class="stack">
@@ -65,7 +70,7 @@
       <section id="tab-updates" class="tab-content" hidden><div id="releaseList" class="stack"></div></section>
     </aside>
 
-    <section id="partsModal" class="modal-scrim" hidden aria-label="Choose parts to generate" role="dialog" aria-modal="true"><div class="modal-card"><div class="modal-title"><h2>Generate separate parts</h2><button id="partsClose" type="button">×</button></div><p class="quiet">Each part is a separate image linked to the main photo. Choose what to make.</p><label>Collection<select id="partCollection"><option value="essential">Exterior essentials</option><option value="interior">Cockpit and interior</option><option value="running">Running gear</option><option value="all">Entire parts catalogue</option></select></label><div id="partCount" class="quiet"></div><div id="partPreview" class="chips"></div><div class="button-row modal-actions"><button id="partsCancel" type="button">Cancel</button><button id="partsStart" class="subtle-primary" type="button">Generate parts</button></div></div></section>
+    <section id="partsModal" class="modal-scrim" hidden aria-label="Parts plan" role="dialog" aria-modal="true"><div class="modal-card parts-planner"><div class="modal-title"><h2>Part collection</h2><button id="partsClose" type="button">×</button></div><p class="quiet">Create blank slots for everything; generate only the components you select.</p><label>Complexity<select id="partCollection"><option value="basic">Basic · 12 parts</option><option value="medium">Medium · ~40 parts</option><option value="advanced">Advanced · ~90 parts</option><option value="all">Complete catalogue</option><option value="interior">Interior only</option><option value="running">Running gear</option></select></label><input id="partSearch" type="search" placeholder="Filter parts…" aria-label="Filter part names"><div class="button-row"><button id="selectAllParts" type="button">Select all</button><button id="selectNoneParts" type="button">Select none</button></div><div id="partCount" class="quiet"></div><div id="partPreview" class="parts-checklist"></div><div class="button-row modal-actions"><button id="partsCancel" type="button">Cancel</button><button id="partsPlan" type="button">Plan blank cards</button><button id="partsStart" class="subtle-primary" type="button">Generate selected</button></div></div></section>
 
     <section id="authModal" class="modal-scrim" hidden role="dialog" aria-modal="true" aria-label="Sign in"><div class="modal-card small"><div class="modal-title"><h2 id="authHeading">Continue</h2><button id="authClose" type="button">×</button></div><div class="auth-switch"><button data-auth="guest" type="button">Guest</button><button data-auth="login" type="button">Sign in</button><button data-auth="register" type="button">Create account</button></div><form id="authForm" class="stack"><label id="guestNameWrap">Name<input id="guestName" maxlength="80" placeholder="Name"></label><label id="authUserWrap" hidden>Username<input id="authUser" autocomplete="username"></label><label id="authPasswordWrap" hidden>Password<input id="authPassword" type="password" autocomplete="current-password"></label><label id="authEmailWrap" hidden>Email (optional)<input id="authEmail" type="email"></label><p id="authError" class="error"></p><button id="authSubmit" type="submit" class="subtle-primary">Continue</button></form></div></section>
     <section id="profileModal" class="modal-scrim" hidden role="dialog" aria-modal="true" aria-label="Profile"><div class="modal-card small"><div class="modal-title"><h2>Profile</h2><button id="profileClose" type="button">×</button></div><form id="profileForm" class="stack"><label>Display name<input id="displayName" maxlength="80"></label><label>About<input id="profileBio" maxlength="240"></label><label>Vehicle focus<input id="profileFocus" maxlength="60"></label><label>Profile photo<input id="avatarUpload" type="file" accept="image/jpeg,image/png,image/webp"></label><button type="submit" class="subtle-primary">Save</button></form><div class="button-row"><button id="upgradeButton" type="button" hidden>Protect profile</button><button id="logoutButton" type="button">Sign out</button></div></div></section>

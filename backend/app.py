@@ -30,6 +30,7 @@ RELEASE_VERSION=RELEASE_INFO['version']
 DATA=Path(os.environ.get('UMI_DATA_DIR', str(ROOT/'.umi-data'))).resolve()
 DATA.mkdir(mode=0o700,parents=True,exist_ok=True)
 MEDIA=DATA/'media'; MEDIA.mkdir(mode=0o700,exist_ok=True)
+MESHES=DATA/'meshes'; MESHES.mkdir(mode=0o700,exist_ok=True)
 
 def persistent_key(filename, env_name, generator):
     value=os.environ.get(env_name)
@@ -916,6 +917,103 @@ def manifest(pid):
     if not row:abort(404)
     return jsonify(make_manifest(row))
 
+# Meshy: create a per-image model task; results remain private to the owning project.
+# This does not imply printability or automatic geometry alignment.
+def mesh_http(method, url, key, payload=None):
+    try: import requests
+    except ImportError as exc: raise ProviderError('3D transport unavailable') from exc
+    if not url.startswith('https://api.meshy.ai/openapi/v1/image-to-3d'):
+        raise ProviderError('Unsupported Meshy endpoint')
+    try:
+        response=requests.request(method,url,headers={'Authorization':'Bearer '+key},json=payload,timeout=55,allow_redirects=False)
+    except requests.RequestException as exc:raise ProviderError('Meshy connection failed') from exc
+    if not response.ok:
+        raise ProviderError('Meshy API returned HTTP '+str(response.status_code)+': '+response.text[:170])
+    try:return response.json()
+    except ValueError as exc:raise ProviderError('Meshy returned invalid JSON') from exc
+
+@app.get('/api/projects/<pid>/mesh-tasks')
+@authenticated
+def list_mesh_tasks(pid):
+    with store.connect(DATA) as conn:
+        if not store.project_for(conn,session['uid'],pid):abort(404)
+        rows=conn.execute('SELECT id,asset_id,provider,label,status,model_file,error,credits_est,created_at,updated_at FROM mesh_tasks WHERE project_id=? AND user_id=? ORDER BY created_at DESC',(pid,session['uid'])).fetchall()
+    return jsonify(tasks=[{**dict(x),'download_url':'/api/mesh-tasks/'+x['id']+'/download' if x['model_file'] else None} for x in rows])
+
+@app.post('/api/projects/<pid>/mesh-tasks')
+@authenticated
+def create_mesh_task(pid):
+    from .mesh_gateway import submit_mesh
+    body=request.get_json(silent=True) or {}
+    aid=str(body.get('asset_id') or '')
+    label=str(body.get('label') or 'Part')[:80]
+    provider_id=str(body.get('provider_id') or 'meshy')
+    textured=bool(body.get('textured',False))
+    if provider_id not in ('meshy','tripo','aholo','gpu-triposr','gpu-hunyuan'):
+        return jsonify(error='Select a 3D provider'),400
+    with store.connect(DATA) as conn:
+        if not store.project_for(conn,session['uid'],pid):abort(404)
+        asset=conn.execute('SELECT filename,mime FROM assets WHERE id=? AND project_id=?',(aid,pid)).fetchone()
+        if not asset:return jsonify(error='Choose a generated image from this project'),400
+        existing=conn.execute("SELECT id,status FROM mesh_tasks WHERE user_id=? AND project_id=? AND asset_id=? AND provider=? AND status NOT IN ('FAILED','CANCELED') ORDER BY created_at DESC LIMIT 1",(session['uid'],pid,aid,provider_id)).fetchone()
+        if existing:return jsonify(error='3D task already exists for this image and provider ('+existing['status']+'). Refresh it before resubmitting.'),409
+        try:preset,config,key=get_provider(conn,provider_id,body.get('temp_provider'))
+        except ProviderError as exc:return jsonify(error=str(exc)),400
+        image=(MEDIA/asset['filename']).read_bytes()
+        if len(image)>9_000_000:return jsonify(error='Image exceeds 9 MB limit'),400
+        try:task_id,initial_status,credits=submit_mesh(provider_id,config,key,image,asset['mime'],textured,mesh_http)
+        except ProviderError as exc:return jsonify(error=str(exc)),502
+        local_id=store.new_id();now=int(time.time())
+        conn.execute('INSERT INTO mesh_tasks(id,project_id,asset_id,user_id,provider,provider_task_id,label,status,credits_est,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+                     (local_id,pid,aid,session['uid'],provider_id,str(task_id),label,initial_status,credits,now,now))
+        conn.commit()
+    return jsonify(id=local_id,status=initial_status,credits_est=credits,label=label,provider=provider_id),201
+
+@app.post('/api/mesh-tasks/<task_id>/refresh')
+@authenticated
+def refresh_mesh_task(task_id):
+    from .mesh_gateway import poll_mesh, download_mesh_output
+    with store.connect(DATA) as conn:
+        row=conn.execute('SELECT * FROM mesh_tasks WHERE id=? AND user_id=?',(task_id,session['uid'])).fetchone()
+        if not row:abort(404)
+        if row['status']=='SUCCEEDED' and row['model_file']:
+            return jsonify(id=task_id,status='SUCCEEDED',download_url='/api/mesh-tasks/'+task_id+'/download')
+        provider_id=row['provider']
+        body=request.get_json(silent=True) or {}
+        try:_,config,key=get_provider(conn,provider_id,body.get('temp_provider'))
+        except ProviderError as exc:return jsonify(error=str(exc)),400
+        try:status,url,error=poll_mesh(provider_id,config,key,row['provider_task_id'],mesh_http)
+        except ProviderError as exc:return jsonify(error=str(exc)),502
+        filename=row['model_file']
+        if status=='SUCCEEDED' and not filename:
+            try:
+                data,extension=download_mesh_output(provider_id,config,url,75_000_000)
+                name=task_id+'.'+extension
+                target=MESHES/name
+                with target.open('xb') as f:f.write(data)
+                os.chmod(target,0o600)
+                filename=name
+            except (ProviderError,OSError) as exc:
+                (MESHES/(task_id+'.glb')).unlink(missing_ok=True)
+                (MESHES/(task_id+'.zip')).unlink(missing_ok=True)
+                return jsonify(error='Model download failed: '+str(exc)[:170]),502
+        conn.execute('UPDATE mesh_tasks SET status=?,model_file=?,error=?,updated_at=? WHERE id=?',(status,filename,error,int(time.time()),task_id))
+        conn.commit()
+    return jsonify(id=task_id,status=status,download_url='/api/mesh-tasks/'+task_id+'/download' if filename else None,error=error)
+
+@app.get('/api/mesh-tasks/<task_id>/download')
+@authenticated
+def download_mesh_task(task_id):
+    with store.connect(DATA) as conn:
+        row=conn.execute('SELECT model_file,label FROM mesh_tasks WHERE id=? AND user_id=?',(task_id,session['uid'])).fetchone()
+    if not row or not row['model_file']:abort(404)
+    path=MESHES/row['model_file']
+    if not path.is_file():abort(404)
+    label=re.sub(r'[^A-Za-z0-9_-]','_',row['label'])[:60]
+    ext=path.suffix.lower()
+    mime='application/zip' if ext=='.zip' else 'model/gltf-binary'
+    return send_file(path,mimetype=mime,as_attachment=True,download_name=label+ext)
+
 @app.get('/api/projects/<pid>/export')
 @authenticated
 def export(pid):
@@ -938,6 +1036,11 @@ def export(pid):
             if re.fullmatch(r'[a-f0-9]{32}',rid):
                 seg=DATA/'segmentations'/(rid+'.json')
                 if seg.is_file():z.write(seg,'segmentations/'+rid+'.json')
+        with store.connect(DATA) as conn:
+            meshes=conn.execute('SELECT id,model_file,label,status FROM mesh_tasks WHERE project_id=? AND user_id=?',(pid,session['uid'])).fetchall()
+        z.writestr('assembly_parts.json',json.dumps([{'id':m['id'],'label':m['label'],'status':m['status'],'mesh':m['model_file'] or None,'transform':None} for m in meshes],indent=2))
+        for m in meshes:
+            if m['model_file'] and (MESHES/m['model_file']).is_file():z.write(MESHES/m['model_file'],'models/'+m['id']+Path(m['model_file']).suffix)
         for a in assets:
             filename=a['filename']
             if (MEDIA/filename).is_file():z.write(MEDIA/filename,'references/'+filename)
