@@ -1,19 +1,19 @@
-# UMI LAB
+# UMI LAB — Image Table v0.2.0
 
-UMI LAB is a 3D-first vehicle concept studio with authenticated Flask/SQLite storage.
+The interface has been rebuilt as a clean, freeform image table. One draggable vehicle photo anchors a family of independently generated angle and component images.
 
-## New in 0.1.9
-- Six-view sheet generation
-- Annotated parts-map generation
-- System-sheet generation (Body, Doors, Glass, Lights, Cockpit, Steering, Seats, Wheels, Brakes, Suspension, Powertrain, Energy, Cabin, Underbody, Hardware, Electronics)
-- Isolated part-sheet generation
-- Export manifest with workflow summary for later CAD / 3D / printing stages
+## Workflow
 
-## Meta Model API (v0.1.11)
-Select Meta Muse in Settings and store a Model API key. Supported hosted chat: Muse Wonder, Spark 1.1–1.3, Ember. Image: Muse Image 1.0 (with multi-reference editing). In Concepts select **Segment part · Meta SAM 3.1** and choose exactly one image and a short part noun phrase. The output records true packed SAM masks plus a clearly marked bounding-box preview. Masks can be decoded later with `meta-sam-parser`; image preview is not a pixel mask. The exported kit includes segmentation JSON. Muse Wonder Full needs Muse Code subscription; Muse Spark Open and Glimmer are self-hosted, not accessible through Meta Model API.
+1. Open UMI LAB; enter a brief and choose a configured image model, or upload a reference.
+2. Select the main photo and choose **Generate angles** (6 separate images).
+3. Choose **Generate parts**, select a group, then confirm a sequence of individually billable images.
+4. Drag photos on the board, pan empty space, zoom with the scroll wheel. Layouts persist across sessions.
+5. Use **Workspace** for image library, projects, model credentials, appearance, activity, and release notes.
 
-## Image editing (0.1.13)
+## Preservation
 
-Open any gallery thumbnail. Drag the preview window or resize its corner. Zoom with trackpad/wheel or +/-; drag rectangles using Free, 1:1, 3:2, 3:4, 4:3, or 16:9. Crop produces a new asset. For AI Edit, select an area, type an instruction, and use a configured image provider. Only selected pixels are composited back into the source; the unselected image stays unchanged.
+All existing users, projects, images and encrypted credentials remain in the same Flask / SQLite backend; the deployment process and watcher are unchanged. Existing projects without tabletop metadata open as blank canvases until a saved image is chosen from **Workspace → Images**.
 
-The prompt can be dragged or docked beside the Concepts workspace. The UMI LAB wordmark restores the active session instead of clearing it.
+## Limitations
+
+Angle consistency and part accuracy depend on the selected model. Generated components are concept imagery, not guaranteed physical parts, segmentation masks, 3D meshes or ready-to-print CAD.

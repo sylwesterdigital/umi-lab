@@ -1,17 +1,5 @@
-# Pipeline
+# UMI LAB Image-first pipeline
 
-1. Prompt / references
-2. Base concept image
-3. Six-view sheet
-4. Annotated parts map
-5. System sheet
-6. Isolated part sheet
-7. Export manifest / BOM
+Prompt or upload → main photo → individual angles → individual component concepts → export manifest.
 
-This release focuses on visual decomposition. It is not fabrication-ready CAD.
-
-## Meta SAM 3.1
-A single selected image and one noun phrase generate SAM masks. Raw packed masks and boxes are persisted for offline processing. The gallery image is a box preview, **not** the decoded mask. All outputs remain concept references and are not manufacturing CAD.
-
-## Reference fidelity
-When reference imagery is supplied for annotation, system or part sheets, the image identity supersedes any unrelated saved chat brief. The API verifies the active source belongs to the request references.
+The single main image is always the sole reference for angle/component requests. Photo layouts and selected source IDs are saved with the project. All view generation calls and component calls produce one file apiece. The queue is sequential; it avoids multi-panel sheets and allows stopping after an in-flight image finishes. Components hidden in the source photo cannot be recovered with engineering precision; generation is conceptual. No CAD or STL validation is claimed.

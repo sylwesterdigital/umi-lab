@@ -48,3 +48,8 @@ Each deployment preserves prior UMI service/vhost/current symlink files and snap
 
 
 This release adds new concepts-generation modes only; no watcher changes are required.
+
+
+## v0.2.0 design table
+
+The frontend now loads only `/static/js/app.js`; retained the unused viewer module solely for watcher v0.1.3 compatibility; the image-editor and release-notes modules are removed. Existing SQLite data and provider keys remain untouched. Angular/part image series are initiated client-side as individually billable requests; stopping pauses after the in-flight provider call.

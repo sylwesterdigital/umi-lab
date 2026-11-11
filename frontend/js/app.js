@@ -1,392 +1,90 @@
-import {setupImageEditor} from './image-editor.js';
-import {RELEASE_VERSION,RELEASE_NOTES} from './release-notes.js';
-const $=selector=>document.querySelector(selector);
-const $$=selector=>[...document.querySelectorAll(selector)];
-const state={csrf:'',user:null,projects:[],project:null,assets:[],messages:[],providers:[],parts:null,viewer:null,drive:false,settings:'models',pending:null,filter:'all',logSize:12,logText:'',logTimer:null,appearance:{},tempProviders:{},selectedProvider:'',generating:false,activityTimer:null,activityHide:null,activityStart:0,previewIndex:-1,focusedAssetId:null,progressTimer:null,progressStart:0,resumed:false,initialWorkspace:true};
-const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+/* UMI LAB image table — intentionally independent of the legacy pane/editor stack. */
+(()=>{'use strict';
+const $=id=>document.getElementById(id);
+const state={csrf:'',user:null,project:null,projects:[],assets:[],providers:[],catalog:[],nodes:[],hero:null,selected:null,pan:{x:0,y:0},zoom:1,tempKeys:{},working:false,stopAfter:false,progressTimer:null,jobStarted:0,logText:'',pending:null,drag:null,persistQueue:Promise.resolve(),authMode:'guest'};
+const angles=[['front','Front',-490,-260],['rear','Rear',0,-390],['side','Left side',490,-260],['top','Top',-490,320],['front_3q','Front ¾',0,410],['rear_3q','Rear ¾',490,320]];
+const essentials=['Shell','Frame','Hood','Roof','Fender','Bumper','Grille','Headlamp','Taillamp','Door FL','Door FR','Mirror'];
+const interiors=['Dash','Wheel','Console','Screen','Seat FL','Seat FR','Shifter','Cluster','Door Card','Glovebox'];
+const running=['Chassis','Subframe','Arm','Spring','Damper','Disc','Caliper','Tyre FL','Rim FL','Hub','Axle','Diff'];
+const prefKey='umi.table.model';const lastKey='umi.table.current';const tempKey='umi.table.temporary';
+const asText=v=>String(v??'');
 let toastTimer;
-function toast(message,error=false){const target=$('#toast');target.textContent=message;target.className='toast show'+(error?' error':'');clearTimeout(toastTimer);toastTimer=setTimeout(()=>target.className='toast',4200);}
-async function api(path,options={}){
-  const opts={credentials:'same-origin',...options};opts.headers={...(opts.headers||{})};
-  if(Object.hasOwn(opts,'json')){opts.headers['Content-Type']='application/json';opts.body=JSON.stringify(opts.json);delete opts.json;}
-  if(opts.method && !['GET','HEAD'].includes(opts.method))opts.headers['X-CSRF-Token']=state.csrf;
-  const res=await fetch('/api/'+path,opts);const data=await res.json().catch(()=>({error:'Unexpected server response'}));
-  if(!res.ok)throw new Error(data.error||`HTTP ${res.status}`);return data;
-}
-function setBusy(button,busy,label='Working…'){if(busy){button.dataset.label=button.textContent;button.textContent=label;}else button.textContent=button.dataset.label||button.textContent;button.disabled=busy;}
-function withSession(action){if(state.user)return Promise.resolve().then(action);state.pending=action;showAuth('guest');return Promise.resolve();}
-const resumeProjectKey=()=>`umi-lab.last-project.${state.user?.id||'visitor'}`;
-const draftKey=()=>`umi-lab.draft.${state.user?.id||'visitor'}.${state.project?.id||'new'}`;
-function keepDraft(){try{localStorage.setItem(draftKey(),$('#promptInput').value);}catch(e){}}
-function restoreDraft(){try{$('#promptInput').value=localStorage.getItem(draftKey())||'';}catch(e){}}
-function activity(stage,model='',complete=false,error=false){
- const hud=$('#aiActivity');clearTimeout(state.activityHide);
- if(!state.activityTimer){state.activityStart=Date.now();state.activityTimer=setInterval(()=>{const sec=Math.floor((Date.now()-state.activityStart)/1000);$('#aiActivityTime').textContent=`${String(Math.floor(sec/60)).padStart(2,'0')}:${String(sec%60).padStart(2,'0')}`;},1000);$('#aiActivityTime').textContent='00:00';}
- hud.hidden=false;$('#aiActivityText').textContent=(error?'Failed · ':complete?'Done · ':'AI · ')+(model?model+' · ':'')+stage;
- if(complete||error){clearInterval(state.activityTimer);state.activityTimer=null;state.activityHide=setTimeout(()=>hud.hidden=true,error?9000:5500);}
-}
-async function copyContent(text){try{await navigator.clipboard.writeText(text);toast('Copied');}catch(e){const box=document.createElement('textarea');box.value=text;box.style.position='fixed';box.style.opacity='0';document.body.append(box);box.select();const ok=document.execCommand('copy');box.remove();toast(ok?'Copied':'Clipboard unavailable',!ok);}}
-function addResumeHint(){
- if(state.resumed||!state.project||state.assets.length||!state.messages.length)return;
- state.resumed=true;const chatID=$('#modelSelect').value;
- const model=state.providers.find(p=>p.id===chatID);
- if(model&&!state.project.settings?.resume_asked){
-  const projectID=state.project.id;
-  activity('Asking how to continue your unfinished vehicle',model.name+' / '+model.model);
-  api('projects/'+projectID+'/continue',{method:'POST',json:{provider_id:chatID,temp_provider:tempConfig(chatID)}})
-    .then(async result=>{if(result.skipped){activity('Project restored',model.name,true);return;}
-      if(state.project?.id===projectID)await openProject(projectID);activity('Follow-up ready',model.name,true);})
-    .catch(e=>{activity('Could not ask provider: '+e.message,model.name,false,true);showResumeSuggestion();});
-  return;
- }
- showResumeSuggestion();
-}
-function showResumeSuggestion(){
- if(state.assets.length)return;const feed=$('#chatFeed');if(feed.querySelector('.resume-hint'))return;
- const hint=document.createElement('div');hint.className='bubble assistant resume-hint';
- const text=document.createElement('div');text.className='bubble-text';text.textContent='Project restored. No images generated yet. What should the next image show, or would you like to add a reference?';
- const actions=document.createElement('div');actions.className='bubble-actions';const copy=document.createElement('button');copy.textContent='Copy';copy.onclick=()=>copyContent(text.textContent);actions.append(copy);hint.append(text,actions);feed.append(hint);$('#conversation').hidden=false;
-}
-async function refreshSession(){const data=await api('session');state.csrf=data.csrf;state.user=data.user;refreshAccount();if(state.user)await loadWorkspace();}
-function refreshAccount(){const name=state.user?.display_name||'Profile';$('#accountButton').title=name;$('#avatarFallback').textContent=name.slice(0,1).toUpperCase();const hasPic=!!state.user?.avatar_url;$('#avatarSmall').hidden=!hasPic;$('#avatarFallback').hidden=hasPic;if(hasPic)$('#avatarSmall').src=state.user.avatar_url+'?t='+Date.now();
-  const scope=$('#logScope');const server=scope.querySelector('option[value=server]');if(server)server.remove();if(state.user?.role==='admin')scope.add(new Option('App server','server'));$('#logoutButton').hidden=!state.user;$('#accountAction').textContent=state.user?.role==='guest'?'Protect guest account':state.user?'Sign out / change account':'Create private account';}
-async function loadWorkspace(){const [projects,parts,providers]=await Promise.all([api('projects'),api('parts'),api('providers')]);state.projects=projects.projects;state.parts=parts;state.providers=providers.providers;renderProjects();renderParts();renderProviders();renderModelSelect();
- if(state.projects.length){let last='';try{last=localStorage.getItem(resumeProjectKey())||'';}catch(e){}const saved=state.projects.find(p=>p.id===last);await openProject(saved?.id||state.projects[0].id);if(state.initialWorkspace)addResumeHint();}
- else {state.project=null;state.assets=[];state.messages=[];renderGallery();restoreDraft();}state.initialWorkspace=false;
-}
-async function openProject(id){const old=state.project?.id;if(old&&old!==id)keepDraft();const data=await api('projects/'+id);state.project=data.project;state.assets=data.assets;state.messages=data.messages;
- const ids=new Set(state.assets.map(a=>a.id));
- if(old!==id||!ids.has(state.focusedAssetId)){
-  let savedFocus='';try{savedFocus=localStorage.getItem('umi.source.'+id)||'';}catch(e){}
-  const choices=Array.isArray(state.project.settings?.reference_assets)?state.project.settings.reference_assets:[];
-  state.focusedAssetId=ids.has(savedFocus)?savedFocus:(choices.find(a=>ids.has(a))|| (ids.has(state.project.selected_asset)?state.project.selected_asset:null));
- }
- try{localStorage.setItem(resumeProjectKey(),id);}catch(e){}if(old!==id)restoreDraft();restoreImageOptions();renderProjects();renderGallery();renderChat();
- $('#welcome').hidden=state.messages.length>0||state.assets.length>0||!!state.project.prompt;$('#showGallery').hidden=false;
-  const settings=state.project.settings||{};$('#bodyColor').value=settings.color||'#8f6bff';$('#rideHeight').value=settings.rideHeight??50;$('#wheelSize').value=settings.wheelSize??100;$('#explodeToggle').checked=!!settings.exploded;state.viewer?.updateCar(settings);}
-async function createProject(prompt=''){const result=await api('projects',{method:'POST',json:{name:prompt.slice(0,60)||'New vehicle',prompt,kind:'car'}});state.projects=(await api('projects')).projects;await openProject(result.id);return result.id;}
-function renderProjects(){const wrap=$('#projectList');wrap.replaceChildren();for(const item of state.projects){const button=document.createElement('button');button.className='project-item';button.innerHTML=`${esc(item.name)}<small>${esc(item.kind)} · ${new Date(item.updated_at*1000).toLocaleDateString()}</small>`;button.onclick=()=>openProject(item.id).then(()=>hideSidePanels()).catch(e=>toast(e.message,true));wrap.append(button);}}
-function renderParts(){const wrap=$('#partsContainer');wrap.replaceChildren();if(!state.parts)return;const q=$('#partSearch').value.toLowerCase().trim();for(const group of state.parts.assemblies){const names=group.parts.filter(n=>!q||n.toLowerCase().includes(q)||group.name.toLowerCase().includes(q));if(!names.length)continue;const div=document.createElement('section');div.className='parts-group';div.innerHTML=`<h3>${esc(group.name)} · ${names.length}</h3><div class="part-tags">${names.map(n=>`<span>${esc(n)}</span>`).join('')}</div>`;wrap.append(div);}}
-function renderChat(){
- const wrap=$('#chatFeed');wrap.replaceChildren();
- for(const m of state.messages){
-  const item=document.createElement('div');item.className='bubble '+(m.role==='user'?'user':'assistant');
-  const body=document.createElement('div');body.className='bubble-text';
-  const md=/!\[([^\]]*)\]\((\/api\/media\/[a-f0-9-]+)\)/g;let index=0,hit;
-  while((hit=md.exec(m.content))){if(hit.index>index)body.append(document.createTextNode(m.content.slice(index,hit.index)));const im=document.createElement('img');im.src=hit[2];im.alt=hit[1]||'Generated vehicle';im.loading='lazy';body.append(im);index=md.lastIndex;}
-  if(index<m.content.length)body.append(document.createTextNode(m.content.slice(index)));
-  const controls=document.createElement('div');controls.className='bubble-actions';
-  const copy=document.createElement('button');copy.type='button';copy.textContent='Copy';copy.title='Copy entire message';copy.onclick=()=>copyContent(m.content);controls.append(copy);
-  if(m.content.length>490){const expand=document.createElement('button');expand.type='button';expand.textContent='More';expand.onclick=()=>{const open=item.classList.toggle('expanded');expand.textContent=open?'Less':'More';};controls.append(expand);}
-  item.append(body,controls);wrap.append(item);
- }
- $('#conversation').hidden=state.messages.length===0;if(state.messages.length)wrap.scrollTop=wrap.scrollHeight;
-}
-function selectedReferenceIds(){const all=new Set((state.assets||[]).map(a=>a.id));const saved=state.project?.settings?.reference_assets;
- if(Array.isArray(saved))return saved.filter(id=>all.has(id)).slice(0,5);
- return state.project?.selected_asset&&all.has(state.project.selected_asset)?[state.project.selected_asset]:[];
-}
-async function toggleReference(id){if(!state.project)return;const chosen=selectedReferenceIds();const exists=chosen.includes(id);if(!exists&&chosen.length>=5){toast('Maximum five reference images',true);return;}
- const refs=exists?chosen.filter(x=>x!==id):[...chosen,id];const settings={...(state.project.settings||{}),reference_assets:refs};
- const data=await api('projects/'+state.project.id,{method:'PATCH',json:{settings}});state.project=data.project;renderGallery();
-}
-function focusGalleryAsset(id){
- if(!state.project||!state.assets.some(a=>a.id===id))return;
- state.focusedAssetId=id;
- try{localStorage.setItem('umi.source.'+state.project.id,id);}catch(e){}
- renderGallery();
-}
-function galleryRefsForMode(mode,automatic=false){
- const saved=selectedReferenceIds();const source=state.assets.some(a=>a.id===state.focusedAssetId)?state.focusedAssetId:null;
- if(!automatic&&['annotate','system','part','segment'].includes(mode))return source?[source]:saved.slice(0,1);
- if(!automatic&&saved.length>1&&mode==='sheet')return saved;
- return source?[source]:(saved.length?saved:[]);
-}
-function describeGallerySource(){
- const mode=$('#galleryAction').value,refs=galleryRefsForMode(mode),primary=state.assets.find(a=>a.id===refs[0]);
- $('#gallerySource').textContent=refs.length?`AI source: ${primary?(primary.view||'reference').replaceAll('_',' '):'selected image'} · ${refs.length} image${refs.length!==1?'s':''} · ${mode==='sheet'?'six-view source':mode==='annotate'?'annotations from this vehicle':'reference for '+mode}`:'AI source: no image · text prompt only';
-}
-function renderGallery(){const wrap=$('#galleryGrid');wrap.replaceChildren();const assets=state.assets||[],chosen=selectedReferenceIds();$('#galleryCount').textContent=chosen.length+' selected';describeGallerySource();
- const result=state.project?.settings?.last_generation;
- $('#galleryLastRun').textContent=result?`Last: ${result.mode==='sheet'?'Six-view sheet':result.mode.replaceAll('_',' ')} · ${result.images_created} image · ${result.reference_count} reference(s) · ${Math.round(result.duration_ms/1000)}s · ${result.provider}/${result.model}`:'No generation yet';
- if(!assets.length){wrap.innerHTML='<div class="empty-gallery">No concepts yet. Describe a vehicle or add an image reference.</div>';return;}
- for(const [idx,asset] of assets.entries()){
-  const item=document.createElement('div');item.className='gallery-card'+(chosen.includes(asset.id)?' reference-selected':'')+(state.focusedAssetId===asset.id?' active-source':'');
-  const image=document.createElement('button');image.type='button';image.className='gallery-open';image.title='Open full-size image';image.setAttribute('aria-label','Preview '+(asset.view||'image'));
-  const img=document.createElement('img');img.src=asset.url;img.alt=asset.view?.replaceAll('_',' ')||'Vehicle reference';img.loading='lazy';image.append(img);
-  image.onclick=()=>openPreview(idx);
-  const pick=document.createElement('button');pick.type='button';pick.className='gallery-pick';pick.textContent=chosen.includes(asset.id)?'✓':'+';pick.title='Use as visual reference';pick.setAttribute('aria-pressed',String(chosen.includes(asset.id)));
-  pick.onclick=async()=>{try{await toggleReference(asset.id);if(selectedReferenceIds().includes(asset.id))focusGalleryAsset(asset.id);}catch(e){toast(e.message,true);}};
-  const label=document.createElement('span');label.textContent=(asset.view==='reference'?'Reference':(asset.view||'Image').replaceAll('_',' '));
-  item.append(image,pick,label);wrap.append(item);
- }
- $('#showGallery').hidden=false;
-}
-function openPreview(index){if(!state.assets.length)return;state.previewIndex=(index+state.assets.length)%state.assets.length;const asset=state.assets[state.previewIndex];
- focusGalleryAsset(asset.id);previewEditor.open(asset,state.previewIndex,state.assets.length,selectedReferenceIds().includes(asset.id));
-}
-function closePreview(){previewEditor.close();}
-function restoreImageOptions(){try{const key='umi.image-options.'+state.project?.id;const options=JSON.parse(localStorage.getItem(key)||'{}');$('#galleryAction').value=options.mode||'sheet';$('#galleryInstructions').value=options.instructions||'';$('#gallerySystem').value=options.system_id||'';$('#galleryPart').value=options.part_name||'';}catch(e){$('#galleryAction').value='sheet';$('#galleryInstructions').value='';$('#gallerySystem').value='';$('#galleryPart').value='';}updateGalleryModeUI();}
-function saveImageOptions(){if(!state.project)return;try{localStorage.setItem('umi.image-options.'+state.project.id,JSON.stringify({mode:$('#galleryAction').value,instructions:$('#galleryInstructions').value,system_id:$('#gallerySystem').value,part_name:$('#galleryPart').value.trim()}));}catch(e){}}
-function updateGalleryModeUI(){const mode=$('#galleryAction').value;const system=mode==='system';const part=mode==='part'||mode==='segment';$('#gallerySystem').hidden=!system;$('#galleryPart').hidden=!part;$('#galleryImageModel').hidden=mode==='segment'||!state.providers.some(p=>p.images&&isConfigured(p));$('#galleryInstructions').placeholder=mode==='annotate'?'Label visible systems and major parts (optional)':mode==='system'?'Focus instructions for the chosen system (optional)':mode==='segment'?'One visible part per request · one selected reference':mode==='part'?'Construction notes for the isolated part (optional)':'Refine style or details (optional)';$('#galleryBody').classList.toggle('compact-parts',system||part);describeGallerySource();}
-function enableGalleryDrag(){const box=$('#galleryPane'),handle=$('#galleryHandle'),corner=$('#galleryResize');
- function begin(ev,resizing){if(ev.button!==0||ev.target.closest('button,select,input'))return;ev.preventDefault();const bounds=box.getBoundingClientRect();const pointer=resizing?corner:handle;
- const snapshot={x:ev.clientX,y:ev.clientY,left:bounds.left,top:bounds.top,width:bounds.width,height:bounds.height};pointer.setPointerCapture(ev.pointerId);
- const move=e=>{if(resizing){box.style.width=Math.max(300,Math.min(innerWidth-snapshot.left-6,snapshot.width+e.clientX-snapshot.x))+'px';box.style.height=Math.max(120,Math.min(innerHeight-snapshot.top-6,snapshot.height+e.clientY-snapshot.y))+'px';}
- else{box.style.left=Math.max(0,Math.min(innerWidth-80,snapshot.left+e.clientX-snapshot.x))+'px';box.style.top=Math.max(0,Math.min(innerHeight-52,snapshot.top+e.clientY-snapshot.y))+'px';}};
- const end=()=>{pointer.removeEventListener('pointermove',move);pointer.removeEventListener('pointerup',end);pointer.removeEventListener('pointercancel',end);try{localStorage.setItem('umi.gallery.bounds',JSON.stringify({left:box.style.left,top:box.style.top,width:box.style.width,height:box.style.height}));}catch(e){}};
- pointer.addEventListener('pointermove',move);pointer.addEventListener('pointerup',end);pointer.addEventListener('pointercancel',end);
- }
- handle.addEventListener('pointerdown',e=>begin(e,false));corner.addEventListener('pointerdown',e=>begin(e,true));
- try{const bounds=JSON.parse(localStorage.getItem('umi.gallery.bounds')||'{}');const x=parseFloat(bounds.left),y=parseFloat(bounds.top),w=parseFloat(bounds.width),h=parseFloat(bounds.height);
- if(Number.isFinite(x))box.style.left=Math.max(0,Math.min(innerWidth-80,x))+'px';if(Number.isFinite(y))box.style.top=Math.max(0,Math.min(innerHeight-55,y))+'px';if(Number.isFinite(w))box.style.width=Math.min(innerWidth-12,Math.max(300,w))+'px';if(Number.isFinite(h))box.style.height=Math.min(innerHeight-12,Math.max(120,h))+'px';}catch(e){}
-}
-function toggleGallery(show){if(show && !state.project){toast('Describe a vehicle first');return;}$('#galleryPane').hidden=!show;if(show)renderGallery();}
-function closeTools(){$('#toolsMenu').hidden=true;$('#toolsButton').setAttribute('aria-expanded','false');}
-function hideSidePanels(){for(const id of ['partsPane','garagePane','editPane'])$('#'+id).hidden=true;}
-function togglePanel(id){const show=$('#'+id).hidden;hideSidePanels();$('#'+id).hidden=!show;}
-async function sendPrompt(event){
- event.preventDefault();const textarea=$('#promptInput');const message=textarea.value.trim();if(!message)return;
- return withSession(async()=>{
-  const btn=$('#sendButton');setBusy(btn,true,'…');let chatOK=false;
-  try{
-   if(!state.project)await createProject(message);
-   else await api('projects/'+state.project.id,{method:'PATCH',json:{prompt:message}});
-   const chatID=$('#modelSelect').value,imageID=$('#imageProviderSelect').value;
-   const chatProvider=state.providers.find(p=>p.id===chatID);const imageProvider=state.providers.find(p=>p.id===imageID);
-   const imageRequested=$('#autoImages').checked&&!!imageID;
-   if(chatProvider)activity('Connecting for design discussion',chatProvider.name+' / '+(tempConfig(chatID)?.model||chatProvider.model));
-   const chatResult=await api('chat',{method:'POST',json:{project_id:state.project.id,message,provider_id:chatID,temp_provider:tempConfig(chatID)}});
-   chatOK=true;
-   if(!imageRequested && chatProvider)activity('Response received',chatProvider.name,true);
-   textarea.value='';keepDraft();$('#welcome').hidden=true;await openProject(state.project.id);
-   if(imageRequested){await generateConcepts({automatic:true,prompt:message});}
-   else if(!chatProvider)activity('Brief saved · choose a model for AI images','',true);
-  }catch(err){activity(err.message,'',false,true);toast(err.message,true);if(chatOK){textarea.value='';keepDraft();await openProject(state.project.id);}}
-  finally{setBusy(btn,false);}
- });
-}
-async function uploadFile(file){if(!file)return;if(!['image/png','image/jpeg','image/webp'].includes(file.type))throw new Error('Use JPG, PNG or WebP');if(file.size>9_000_000)throw new Error('Image exceeds 9 MB');return withSession(async()=>{if(!state.project)await createProject();const data=new FormData();data.append('project_id',state.project.id);data.append('image',file);const response=await api('assets/upload',{method:'POST',body:data});await openProject(state.project.id);
- // An uploaded file is an explicit reference and should remain selected for generation.
- if(response.id&&!selectedReferenceIds().includes(response.id))await toggleReference(response.id);
- toggleGallery(true);$('#welcome').hidden=true;toast('Reference uploaded');});}
-function galleryProgress(stage,model='',active=true){
- const el=$('#galleryProgress');clearInterval(state.progressTimer);state.progressTimer=null;
- if(!active){el.hidden=true;$('#galleryPane').classList.remove('ai-working');return;}
- el.hidden=false;$('#galleryPane').classList.add('ai-working');
- $('#galleryProgressText').textContent=`${stage}${model?' · '+model:''}`;
- state.progressStart=Date.now();$('#galleryProgressClock').textContent='00:00';
- state.progressTimer=setInterval(()=>{const s=Math.floor((Date.now()-state.progressStart)/1000);$('#galleryProgressClock').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');},1000);
-}
-async function generateConcepts(options={}){
- const automatic=!!options.automatic;
- return withSession(async()=>{
-  if(!state.project)await createProject($('#promptInput').value);
-  if(!automatic&&$('#galleryAction').value==='segment'){
-   const meta=state.providers.find(p=>p.id==='meta');
-   if(!meta||!isConfigured(meta)){openSettings('models');toast('Connect Meta Muse first for SAM 3.1',true);return false;}
-   const noun=$('#galleryPart').value.trim();const ids=galleryRefsForMode('segment');
-   if(!noun||noun.split(/\s+/).length>12){toast('Enter one short part name, e.g. front bumper',true);return false;}
-   if(ids.length!==1){toast('Select exactly one image for segmentation',true);return false;}
-   if(state.generating)return false;state.generating=true;const button=$('#generateButton');setBusy(button,true,'Segmenting…');
-   activity('Segmenting '+noun, 'Meta / SAM 3.1');galleryProgress('Segmenting '+noun,'Meta SAM 3.1');
-   try{const result=await api('segments/generate',{method:'POST',json:{project_id:state.project.id,asset_id:ids[0],noun,temp_provider:tempConfig('meta')}});
-     await openProject(state.project.id);toggleGallery(true);activity(`SAM: ${result.matches} match(es) · ${result.masks} mask(s) stored`, 'Meta / SAM 3.1',true);
-     toast(`SAM 3.1 · ${result.matches} match(es) · mask data in Export kit`);return true;
-   }catch(e){activity(e.message,'Meta / SAM 3.1',false,true);toast('Segmentation: '+e.message,true);return false;}
-   finally{setBusy(button,false);galleryProgress('','',false);state.generating=false;}
-  }
-  const choices=state.providers.filter(p=>p.images&&isConfigured(p));const select=automatic?$('#imageProviderSelect'):$('#galleryImageModel');
-  const preferred=choices.find(p=>p.id===select.value)||choices[0];
-  if(!preferred){openSettings('models');toast('Connect an image provider first',true);return false;}
-  if(state.generating)return false;
-  const button=$('#generateButton'),mode=automatic?'front_3q':$('#galleryAction').value;
-  const refs=galleryRefsForMode(mode,automatic);const instructions=automatic?'':$('#galleryInstructions').value.trim();const systemID=$('#gallerySystem').value;const partName=$('#galleryPart').value.trim();
-  if(!automatic&&mode==='system'&&!systemID){toast('Choose a system first',true);return false;}
-  if(!automatic&&mode==='part'&&partName.length<2){toast('Enter a part name first',true);return false;}
-  state.generating=true;const modelLabel=preferred.name+' / '+(tempConfig(preferred.id)?.image_model||preferred.image_model);
-  galleryProgress(mode==='annotate'?'Annotating selected vehicle':mode==='system'?'Generating system sheet':mode==='part'?'Generating part sheet':mode==='sheet'?'Generating six views':'Generating image',modelLabel);
-  setBusy(button,true,'Generating…');activity(refs.length?`Editing from ${refs.length} selected reference(s)`:'Generating from brief',preferred.name+' / '+(tempConfig(preferred.id)?.image_model||preferred.image_model));
-  try{
-   activity(mode==='sheet'?'Creating a single six-view sheet':mode==='annotate'?'Creating annotated parts map':mode==='system'?'Creating '+systemID+' system sheet':mode==='part'?'Creating isolated part sheet for '+partName:'Creating '+mode.replaceAll('_',' ')+' image',preferred.name+' / '+(tempConfig(preferred.id)?.image_model||preferred.image_model));
-   const res=await api('concepts/generate',{method:'POST',json:{project_id:state.project.id,provider_id:preferred.id,prompt:options.prompt||state.project.prompt||$('#promptInput').value,mode,reference_ids:refs,source_asset_id:refs[0]||null,instructions,system_id:systemID,part_name:partName,temp_provider:tempConfig(preferred.id)}});
-   await openProject(state.project.id);toggleGallery(true);
-   activity(`Saved ${res.images_created} image · ${res.views_completed} view(s) · ${res.reference_count} reference(s)`,preferred.name,true);
-   if(res.warnings?.length)toast(res.warnings.join(' · '),true);
-   return true;
-  }catch(e){activity(e.message,preferred.name,false,true);toast('Image generation: '+e.message,true);return false;}
-  finally{setBusy(button,false);galleryProgress('', '',false);state.generating=false;}
- });
-}
-
-async function saveRegionImage(asset,rect,operation,prompt=''){
- if(!state.project||state.generating)return;
- const projectID=state.project.id;
- const imageID=$('#galleryImageModel').value||$('#imageProviderSelect').value;
- const provider=state.providers.find(p=>p.id===imageID);
- if(operation==='edit'&&!provider){openSettings('models');toast('Connect an image provider first',true);return;}
- state.generating=true;
- activity(operation==='crop'?'Cropping selected area':'Editing selected area only',provider?.name||'',false);
- try{
-  const res=await api('assets/region',{method:'POST',json:{project_id:projectID,asset_id:asset.id,rect,operation,prompt,
-      provider_id:operation==='edit'?imageID:'',temp_provider:operation==='edit'?tempConfig(imageID):null}});
-  await openProject(projectID);
-  const newIndex=state.assets.findIndex(a=>a.id===res.id);
-  if(newIndex>=0)openPreview(newIndex);
-  toggleGallery(true);
-  activity(operation==='crop'?'Crop saved to gallery':'AI edit saved · outside selection preserved',provider?.name||'',true);
- }catch(e){activity(e.message,provider?.name||'',false,true);toast((operation==='crop'?'Crop':'AI edit')+': '+e.message,true);}
- finally{state.generating=false;}
-}
-const previewEditor=setupImageEditor({
- onPick:asset=>toggleReference(asset.id).then(()=>previewEditor.setSelected(selectedReferenceIds().includes(asset.id))).catch(e=>toast(e.message,true)),
- onCrop:(asset,rect)=>saveRegionImage(asset,rect,'crop'),
- onEdit:(asset,rect,prompt)=>saveRegionImage(asset,rect,'edit',prompt),
- getModel:()=>{const p=state.providers.find(x=>x.id===($('#galleryImageModel').value||$('#imageProviderSelect').value));return p?((p.name||p.id)+' / '+(tempConfig(p.id)?.image_model||p.image_model||'')):'image model';}
-});
-function positionDockedPrompt(){const form=$('#promptForm');if(!form.classList.contains('docked'))return;
- const gallery=$('#galleryPane');if(gallery.hidden){form.style.left='50%';form.style.top='';form.style.bottom='max(7px,env(safe-area-inset-bottom))';form.style.transform='translateX(-50%)';return;}
- const box=gallery.getBoundingClientRect(),w=Math.min(form.offsetWidth,innerWidth-16);
- let left=Math.max(8,Math.min(innerWidth-w-8,box.left+(box.width-w)/2));
- let top=box.bottom+8;if(top+form.offsetHeight>innerHeight-8)top=Math.max(8,box.top-form.offsetHeight-8);
- form.style.left=left+'px';form.style.top=top+'px';form.style.bottom='auto';form.style.transform='none';
-}
-function enablePromptWindow(){const form=$('#promptForm'),handle=$('#promptHandle'),dock=$('#promptDock');
- const resetBottom=()=>{form.classList.remove('docked','floating');form.style.left='50%';form.style.top='';form.style.bottom='max(7px,env(safe-area-inset-bottom))';form.style.transform='translateX(-50%)';};
- dock.onclick=()=>{if(form.classList.contains('docked')){resetBottom();dock.textContent='Dock';}else{if($('#galleryPane').hidden)toggleGallery(true);form.classList.add('docked');form.classList.remove('floating');dock.textContent='Undock';positionDockedPrompt();}try{localStorage.setItem('umi.prompt.docked',form.classList.contains('docked')?'1':'0');}catch(e){}};
- $('#promptCollapse').onclick=()=>{const collapsed=form.classList.toggle('minimized');$('#promptCollapse').textContent=collapsed?'□':'−';positionDockedPrompt();};
- handle.addEventListener('pointerdown',ev=>{if(ev.button!==0||ev.target.closest('button'))return;
-  ev.preventDefault();const b=form.getBoundingClientRect(),origin={x:ev.clientX,y:ev.clientY,left:b.left,top:b.top};
-  form.classList.remove('docked');form.classList.add('floating');dock.textContent='Dock';
-  form.style.left=b.left+'px';form.style.top=b.top+'px';form.style.bottom='auto';form.style.transform='none';
-  try{localStorage.setItem('umi.prompt.docked','0');}catch(e){}
-  handle.setPointerCapture(ev.pointerId);
-  const move=e=>{form.style.left=Math.max(0,Math.min(innerWidth-100,origin.left+e.clientX-origin.x))+'px';form.style.top=Math.max(0,Math.min(innerHeight-40,origin.top+e.clientY-origin.y))+'px';};
-  const done=()=>{handle.removeEventListener('pointermove',move);handle.removeEventListener('pointerup',done);handle.removeEventListener('pointercancel',done);try{localStorage.setItem('umi.prompt.bounds',JSON.stringify({left:form.style.left,top:form.style.top}));}catch(e){}};
-  handle.addEventListener('pointermove',move);handle.addEventListener('pointerup',done);handle.addEventListener('pointercancel',done);
- });
- try{if(localStorage.getItem('umi.prompt.docked')==='1'){form.classList.add('docked');dock.textContent='Undock';positionDockedPrompt();}else{const b=JSON.parse(localStorage.getItem('umi.prompt.bounds')||'{}');if(Number.isFinite(parseFloat(b.left))&&Number.isFinite(parseFloat(b.top))){form.classList.add('floating');form.style.left=Math.max(0,Math.min(innerWidth-100,parseFloat(b.left)))+'px';form.style.top=Math.max(0,Math.min(innerHeight-40,parseFloat(b.top)))+'px';form.style.bottom='auto';form.style.transform='none';}}}catch(e){}
- const gallery=$('#galleryPane');new MutationObserver(()=>positionDockedPrompt()).observe(gallery,{attributes:true,attributeFilter:['style','hidden','class']});
- window.addEventListener('resize',positionDockedPrompt);
-}
-const tempStorage='umi-lab.temp-providers.v1',preferenceStorage='umi-lab.model-preferences.v1';
-function loadTempProviders(){try{const value=JSON.parse(sessionStorage.getItem(tempStorage)||'{}');state.tempProviders=(value&&typeof value==='object')?value:{};}catch(e){state.tempProviders={};}}
-function storeTempProviders(){try{sessionStorage.setItem(tempStorage,JSON.stringify(state.tempProviders));}catch(e){toast('Browser session storage unavailable',true);}}
-function tempConfig(id){return state.tempProviders[id]||null;}
-function isConfigured(p){return !!(state.tempProviders[p.id]?.enabled || p.enabled && (p.has_key || p.local));}
-function saveChoices(){try{localStorage.setItem(preferenceStorage,JSON.stringify({chat:$('#modelSelect').value,image:$('#imageProviderSelect').value}));}catch(e){}}
-function getChoices(){try{return JSON.parse(localStorage.getItem(preferenceStorage)||'{}');}catch(e){return {};}}
-function renderModelSelect(){
- const prefs=getChoices(),chat=$('#modelSelect'),images=$('#imageProviderSelect'),gallery=$('#galleryImageModel');
- const oldChat=chat.value||prefs.chat,oldImage=images.value||prefs.image;
- chat.replaceChildren(new Option('No chat model',''));
- for(const p of state.providers.filter(p=>p.protocol!=='meshy'&&p.protocol!=='tripo'&&p.protocol!=='aholo'&&isConfigured(p)))chat.add(new Option(p.name+' / '+(tempConfig(p.id)?.model||p.model),p.id));
- if([...chat.options].some(o=>o.value===oldChat))chat.value=oldChat;
- images.replaceChildren();gallery.replaceChildren();
- for(const p of state.providers.filter(p=>p.images&&isConfigured(p))){const name=p.name+' / '+(tempConfig(p.id)?.image_model||p.image_model);images.add(new Option(name,p.id));gallery.add(new Option(name,p.id));}
- if([...images.options].some(o=>o.value===oldImage)){images.value=oldImage;gallery.value=oldImage;}
- const enabled=images.options.length>0;chat.hidden=chat.options.length<=1;images.hidden=!enabled;gallery.hidden=!enabled;$('#autoImageLabel').hidden=!enabled;
- saveChoices();
-}
-function renderProviders(){
- const filter=$('#providerFilter').value,selected=$('#providerSelect'),prior=selected.value||state.selectedProvider;
- selected.replaceChildren();
- const valid=state.providers.filter(p=>filter==='all'||filter==='configured'&&isConfigured(p)||filter==='images'&&p.images||filter==='mesh3d'&&p.mesh3d||filter==='chat'&&!p.mesh3d);
- for(const p of valid)selected.add(new Option(p.name+(isConfigured(p)?' · connected':''),p.id));
- if([...selected.options].some(o=>o.value===prior))selected.value=prior;
- state.selectedProvider=selected.value;renderProviderEditor();
-}
-function renderProviderEditor(){
- const host=$('#providerEditor'),p=state.providers.find(p=>p.id===$('#providerSelect').value);
- host.replaceChildren();if(!p){host.textContent='No providers in this category';return;}
- const tmp=tempConfig(p.id)||{},connected=isConfigured(p);
- const form=document.createElement('form');form.className='provider-fields-compact';form.autocomplete='off';
- const mesh=p.mesh3d;form.innerHTML=`<div class="provider-title"><strong>${esc(p.name)}</strong><button type="button" role="switch" class="switch ${connected?'on':''}" aria-checked="${connected}" title="Enable or disable this provider"><i></i></button></div>
- <div class="provider-status">${connected?(tmp.enabled?'Temporary · this tab':'Saved on server'):'Not connected'} · ${mesh?'3D':p.images?'Chat / images':'Chat'}</div>
- <label>${mesh?'3D model':'Chat model'}<input class="provider-model" ${p.chat_models?'list=\"chatModels\"':''} value="${esc(tmp.model??p.model??'')}" maxlength="180"></label>
- ${p.chat_models?`<datalist id=\"chatModels\">${p.chat_models.map(name=>`<option value=\"${esc(name)}\">`).join('')}</datalist>`:''}
- ${p.images?`<label>Image model<input class="provider-image" ${p.image_models?'list=\"imageModels\"':''} value="${esc(tmp.image_model??p.image_model??'')}" maxlength="180"></label>${p.image_models?`<datalist id=\"imageModels\">${p.image_models.map(name=>`<option value=\"${esc(name)}\">`).join('')}</datalist>`:''}`:''}
- ${p.segmentation?'<div class=\"provider-status\">SAM 3.1 · Segment part via Concepts workflow</div>':''}
- <label>API endpoint<input class="provider-url" value="${esc(tmp.base_url??p.base_url??'')}" maxlength="300"></label>
- <label>API key<input class="provider-key" type="password" autocomplete="new-password" placeholder="${tmp.api_key?'Temporary key loaded':p.has_key?'Encrypted key stored':'Paste key (not shown)'}"></label>
- <div class="provider-controls"><button type="button" class="test-provider">Test API / balance</button><button type="button" class="temp-provider">Keep in tab</button><button type="submit" class="save-provider">Save on server</button><button type="button" class="clear-provider">Clear</button></div>
- <div class="provider-note" aria-live="polite">${esc(p.access_note||'Temporary keys stay in this browser tab. Saved keys are encrypted on the server. Balance is displayed only when supported.')}</div>`;
- const field=key=>form.querySelector('.provider-'+key);
- const config=()=>({enabled:true,model:field('model').value.trim(),image_model:field('image')?.value.trim()||'',base_url:field('url').value.trim(),api_key:field('key').value||tmp.api_key||''});
- const status=message=>form.querySelector('.provider-note').textContent=message;
- form.querySelector('.test-provider').onclick=async()=>{const button=form.querySelector('.test-provider');setBusy(button,true,'Checking…');try{const result=await api('providers/'+p.id+'/check',{method:'POST',json:config()});status(`${result.status}${result.balance!=null?' · Balance: '+result.balance:''}${result.detail?' · '+result.detail:''}`);}catch(e){status('Check failed: '+e.message);}finally{setBusy(button,false);}};
- form.querySelector('.temp-provider').onclick=()=>{state.tempProviders[p.id]=config();storeTempProviders();renderProviders();renderModelSelect();toast(p.name+' available in this tab');};
- form.onsubmit=async e=>{e.preventDefault();try{await api('providers/'+p.id,{method:'PUT',json:config()});delete state.tempProviders[p.id];storeTempProviders();await refreshProviders();toast(p.name+' saved');}catch(e){status('Save failed: '+e.message);}};
- form.querySelector('.clear-provider').onclick=async()=>{if(!confirm('Clear temporary and saved API keys for '+p.name+'?'))return;try{await api('providers/'+p.id,{method:'PUT',json:{...config(),api_key:'',clear_key:true,enabled:false}});delete state.tempProviders[p.id];storeTempProviders();await refreshProviders();toast('Key cleared');}catch(e){status('Clear failed: '+e.message);}};
- form.querySelector('.switch').onclick=async()=>{if(connected){if(tmp.enabled){delete state.tempProviders[p.id];storeTempProviders();renderProviders();renderModelSelect();}else{try{await api('providers/'+p.id,{method:'PUT',json:{...config(),api_key:'',enabled:false}});await refreshProviders();}catch(e){status(e.message);}}}else{if(!config().api_key&&!p.has_key&&!p.local){status('Enter a key then choose temporary or server storage');return;}state.tempProviders[p.id]=config();storeTempProviders();renderProviders();renderModelSelect();}};
- host.append(form);
-}
-async function refreshProviders(){state.providers=(await api('providers')).providers;renderProviders();renderModelSelect();}
-
-function openSettings(section='models'){if(!state.user && section==='models')section='appearance';$('#drawerBackdrop').hidden=false;$('#settingsDrawer').classList.add('open');$('#settingsDrawer').setAttribute('aria-hidden','false');selectSettings(section);}
-function closeSettings(){$('#drawerBackdrop').hidden=true;$('#settingsDrawer').classList.remove('open');$('#settingsDrawer').setAttribute('aria-hidden','true');}
-function selectSettings(section){if(section==='models'&&!state.user){closeSettings();withSession(()=>openSettings('models'));return;}state.settings=section;$$('.drawer-tabs button').forEach(b=>b.classList.toggle('selected',b.dataset.settings===section));for(const name of ['models','appearance','profile'])$('#'+name+'Settings').hidden=name!==section;if(section==='profile')loadProfile();}
-async function loadProfile(){if(!state.user){closeSettings();showAuth('guest');return;}try{const user=(await api('profile')).user;state.user=user;refreshAccount();$('#profileName').value=user.display_name;$('#profileBio').value=user.bio||'';$('#profileFocus').value=user.focus||'';$('#profilePrivate').hidden=user.role==='guest';$('#profileEmail').value=user.email||'';$('#profilePhone').value=user.phone||'';$('#avatarLarge').hidden=!user.avatar_url;$('#avatarLargeFallback').hidden=!!user.avatar_url;if(user.avatar_url)$('#avatarLarge').src=user.avatar_url+'?t='+Date.now();$('#avatarLargeFallback').textContent=user.display_name.slice(0,1).toUpperCase();}catch(e){toast(e.message,true);}}
-async function saveProfile(event){event.preventDefault();try{const res=await api('profile',{method:'PUT',json:{display_name:$('#profileName').value,bio:$('#profileBio').value,focus:$('#profileFocus').value}});state.user=res.user;refreshAccount();toast('Profile saved');}catch(e){toast(e.message,true);}}
-async function saveAvatar(file){if(!file)return;const form=new FormData();form.append('image',file);try{await api('profile/avatar',{method:'POST',body:form});await loadProfile();toast('Profile picture saved');}catch(e){toast(e.message,true);}}
-const appearanceKey='umi-lab.appearance.v1';
-function loadAppearance(){try{state.appearance=JSON.parse(localStorage.getItem(appearanceKey)||'{}');}catch(e){state.appearance={};}applyAppearance();}
-function saveAppearance(){const a={theme:$('#themeSelect').value,accent:$('#accentColor').value,surface:$('#surfaceColor').value,text:$('#textColor').value,font:$('#fontSelect').value,customFont:$('#fontCustom').value,scale:Number($('#uiScale').value)};state.appearance=a;try{localStorage.setItem(appearanceKey,JSON.stringify(a));}catch(e){}applyAppearance();}
-function applyAppearance(){const a=state.appearance;document.body.dataset.theme=a.theme||'graphite';const root=document.documentElement;root.style.setProperty('--scale',String(Math.max(.8,Math.min(1.35,(a.scale||100)/100))));$('#uiScaleValue').textContent=(a.scale||100)+'%';if(a.theme==='custom'){root.style.setProperty('--accent',a.accent||'#84a4ff');root.style.setProperty('--surface',a.surface||'#111318');root.style.setProperty('--text',a.text||'#f3f5f8');}else for(const v of ['--accent','--surface','--text'])root.style.removeProperty(v);
- let font=a.font||'system-ui';if(font==='custom')font=(a.customFont||'system-ui').replace(/[^a-zA-Z0-9_\- ]/g,'').slice(0,90)||'system-ui';root.style.setProperty('--ui-font',font==='UMI-Uploaded'?'"UMI-Uploaded",system-ui':`"${font}",system-ui`);$('#themeSelect').value=a.theme||'graphite';$('#accentColor').value=a.accent||'#84a4ff';$('#surfaceColor').value=a.surface||'#111318';$('#textColor').value=a.text||'#f3f5f8';$('#fontSelect').value=['system-ui','Inter','Arial','Helvetica Neue','Georgia','monospace','custom'].includes(a.font)?a.font:'system-ui';$('#fontCustom').value=a.customFont||'';$('#uiScale').value=a.scale||100;}
-function openFontDb(){return new Promise((resolve,reject)=>{const req=indexedDB.open('umi-lab.localfonts',1);req.onupgradeneeded=()=>req.result.createObjectStore('fonts');req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);});}
-async function setUploadedFont(buffer){const font=new FontFace('UMI-Uploaded',buffer);await font.load();document.fonts.add(font);document.documentElement.style.setProperty('--ui-font','"UMI-Uploaded",system-ui');}
-async function restoreLocalFont(){try{const db=await openFontDb();const stored=await new Promise((ok,fail)=>{const r=db.transaction('fonts').objectStore('fonts').get('selected');r.onsuccess=()=>ok(r.result);r.onerror=()=>fail(r.error);});db.close();if(stored){await setUploadedFont(stored);if(state.appearance.font==='UMI-Uploaded')document.documentElement.style.setProperty('--ui-font','"UMI-Uploaded",system-ui');}}catch(e){/* local font optional */}}
-async function uploadFont(file){if(!file)return;if(!/\.(woff2?|ttf|otf)$/i.test(file.name)||file.size>2_000_000){toast('Choose a WOFF, WOFF2, TTF or OTF file under 2 MB',true);return;}try{const bytes=await file.arrayBuffer();await setUploadedFont(bytes);const db=await openFontDb();await new Promise((ok,fail)=>{const tr=db.transaction('fonts','readwrite');tr.objectStore('fonts').put(bytes,'selected');tr.oncomplete=ok;tr.onerror=()=>fail(tr.error);});db.close();state.appearance.font='UMI-Uploaded';localStorage.setItem(appearanceKey,JSON.stringify(state.appearance));toast('Font installed for this browser');}catch(e){toast('Could not load this font',true);}}
-function resetAppearance(){state.appearance={};try{localStorage.removeItem(appearanceKey);}catch(e){}applyAppearance();}
-const auth={mode:'guest'};
-function showAuth(mode='guest'){auth.mode=mode;$('#authOverlay').hidden=false;selectAuthMode(mode);}
-function selectAuthMode(mode){auth.mode=mode;$$('.auth-tabs button').forEach(b=>b.classList.toggle('selected',b.id===(mode==='guest'?'guestMode':mode==='login'?'loginMode':'registerMode')));$('#guestMode').hidden=!!state.user;$('#loginMode').hidden=false;$('#registerMode').textContent=mode==='upgrade'?'Protect this account':'Create account';$('#authHeading').textContent=mode==='upgrade'?'Protect your guest profile':mode==='login'?'Sign in':mode==='register'?'Create an account':'Continue as guest';$('#authNameWrap').hidden=mode==='login'||mode==='upgrade';$('#authUserWrap').hidden=mode==='guest';$('#authEmailWrap').hidden=mode!=='register'&&mode!=='upgrade';$('#authPhoneWrap').hidden=mode!=='register'&&mode!=='upgrade';$('#authPasswordWrap').hidden=mode==='guest';$('#authSubmit').textContent=mode==='guest'?'Continue as guest':mode==='login'?'Sign in':mode==='upgrade'?'Protect profile':'Create account';$('#authPassword').autocomplete=mode==='login'?'current-password':'new-password';$('#authPassword').required=mode!=='guest';$('#authUser').required=mode!=='guest';$('#authName').required=mode==='guest'||mode==='register';$('#authError').textContent='';}
-async function submitAuth(event){event.preventDefault();const mode=auth.mode;const payload={name:$('#authName').value.trim(),username:$('#authUser').value.trim(),password:$('#authPassword').value,email:$('#authEmail').value,phone:$('#authPhone').value};const uri=mode==='guest'?'guest':mode==='login'?'login':mode==='upgrade'?'account/upgrade':'register';const btn=$('#authSubmit');setBusy(btn,true);try{const res=await api(uri,{method:'POST',json:payload});if(res.csrf)state.csrf=res.csrf;$('#authPassword').value='';$('#authOverlay').hidden=true;await refreshSession();if(state.pending){const pending=state.pending;state.pending=null;await pending();}}catch(e){$('#authError').textContent=e.message;}finally{setBusy(btn,false);}}
-async function logout(){if(!state.user){showAuth('login');return;}if(!confirm('Sign out of this workspace?'))return;try{await api('logout',{method:'POST'});state.user=null;state.project=null;state.assets=[];state.messages=[];state.projects=[];state.providers=[];refreshAccount();hideSidePanels();closeSettings();$('#galleryPane').hidden=true;$('#conversation').hidden=true;closeLogs();$('#welcome').hidden=false;$('#promptInput').value='';toast('Signed out');}catch(e){toast(e.message,true);}}
-function logLine(entry){if(entry.time||entry.event)return `${entry.time||''} [${entry.level||'INFO'}] ${entry.event||entry.action||''}${entry.status?' · '+entry.status:''}`;return `${entry.ts||''} [${entry.level||'INFO'}] ${entry.action||''} ${entry.status||''}`;}
-async function refreshLogs(){if($('#logWindow').hidden||!state.user)return;try{const scope=$('#logScope').value;const data=await api('logs?scope='+scope+'&limit=220');state.logText=data.entries.map(logLine).join('\n')||'No activity yet.';$('#logOutput').textContent=state.logText;}catch(e){$('#logOutput').textContent='Log unavailable: '+e.message;}}
-function startLogPolling(){clearInterval(state.logTimer);state.logTimer=setInterval(()=>{if(!$('#logWindow').hidden&&!$('#logWindow').classList.contains('collapsed'))refreshLogs();},8000);}
-function showLogs(){withSession(async()=>{$('#logWindow').hidden=false;refreshLogs();startLogPolling();});}
-function closeLogs(){$('#logWindow').hidden=true;clearInterval(state.logTimer);}
-function changeLogSize(delta){state.logSize=Math.min(23,Math.max(9,state.logSize+delta));$('#logOutput').style.fontSize=state.logSize+'px';try{localStorage.setItem('umi-lab.log-font',String(state.logSize));}catch(e){}}
-function enableLogDrag(){const windowEl=$('#logWindow'),handle=$('#logHandle'),resize=$('#logResize');function start(ev,resizeMode){if(ev.button!==0||ev.target.closest('button'))return;ev.preventDefault();const bounds=windowEl.getBoundingClientRect();const x=ev.clientX,y=ev.clientY;const origin={left:bounds.left,top:bounds.top,width:bounds.width,height:bounds.height};const target=resizeMode?resize:handle;target.setPointerCapture(ev.pointerId);const move=e=>{if(resizeMode){windowEl.style.width=Math.max(285,Math.min(innerWidth-origin.left-8,origin.width+e.clientX-x))+'px';windowEl.style.height=Math.max(125,Math.min(innerHeight-origin.top-8,origin.height+e.clientY-y))+'px';}else{windowEl.style.left=Math.max(0,Math.min(innerWidth-bounds.width,origin.left+e.clientX-x))+'px';windowEl.style.top=Math.max(0,Math.min(innerHeight-45,origin.top+e.clientY-y))+'px';}};const end=()=>{target.removeEventListener('pointermove',move);target.removeEventListener('pointerup',end);target.removeEventListener('pointercancel',end);};target.addEventListener('pointermove',move);target.addEventListener('pointerup',end);target.addEventListener('pointercancel',end);}
- handle.addEventListener('pointerdown',e=>start(e,false));resize.addEventListener('pointerdown',e=>start(e,true));}
-function applyModelSettings(){state.viewer?.updateCar({color:$('#bodyColor').value,rideHeight:Number($('#rideHeight').value),wheelSize:Number($('#wheelSize').value),exploded:$('#explodeToggle').checked});}
-async function saveModel(){return withSession(async()=>{if(!state.project)await createProject();const settings={color:$('#bodyColor').value,rideHeight:Number($('#rideHeight').value),wheelSize:Number($('#wheelSize').value),exploded:$('#explodeToggle').checked};const res=await api('projects/'+state.project.id,{method:'PATCH',json:{settings}});state.project=res.project;toast('3D settings saved');});}
-async function toggleDrive(){if(!state.viewer){toast('3D engine is unavailable',true);return;}if(state.drive){state.viewer.setDriving(false);state.drive=false;}else{if($('#explodeToggle').checked){$('#explodeToggle').checked=false;applyModelSettings();}state.drive=state.viewer.setDriving(true);if(!state.drive){toast('Physics engine unavailable',true);return;}}$('#driveButton').textContent=state.drive?'Park':'Drive';$('#driveButton').classList.toggle('active',state.drive);$('#resetDriveButton').hidden=!state.drive;$('#driveHelp').hidden=!state.drive;for(const id of ['rideHeight','wheelSize','explodeToggle'])$('#'+id).disabled=state.drive;}
-async function initializeViewer(){try{state.viewer=await import('./viewer.js');await state.viewer.startViewer($('#vehicleCanvas'));$('#sceneHelp').hidden=false;}catch(e){toast('3D scene unavailable. Check CDN access.',true);console.error('Viewer unavailable',e);}}
-function downloadJSON(obj,name){const href=URL.createObjectURL(new Blob([JSON.stringify(obj,null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=href;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(href),2000);}
-function showReleaseNotes(manual=false){
- const notes=$('#releaseNotes'),list=$('#releaseNotesList');list.replaceChildren();
- for(const item of RELEASE_NOTES){const article=document.createElement('article');article.className='release-entry';
-  const h=document.createElement('h3');h.textContent='v'+item.version+' · '+item.title;
-  const d=document.createElement('time');d.textContent=item.date+' · '+item.time;article.append(h,d);
-  const ul=document.createElement('ul');for(const line of item.items){const li=document.createElement('li');li.textContent=line;ul.append(li);}article.append(ul);list.append(article);}
- $('#releaseNotesCurrent').textContent='v'+RELEASE_VERSION;notes.hidden=false;
- try{localStorage.setItem('umi.release.seen.'+RELEASE_VERSION,'1');}catch(e){}
- clearTimeout(showReleaseNotes.timer);
- // Auto-close the first-open preview unless someone starts reading/interacting with it.
- if(!manual){showReleaseNotes.timer=setTimeout(()=>{if(!notes.matches(':hover')&&document.activeElement!==list)notes.hidden=true;},15000);}
-}
-function closeReleaseNotes(){clearTimeout(showReleaseNotes.timer);$('#releaseNotes').hidden=true;}
-function maybeShowReleaseNotes(){try{if(localStorage.getItem('umi.release.seen.'+RELEASE_VERSION)==='1')return;}catch(e){}showReleaseNotes(false);}
+function notify(message){const el=$('toast');el.textContent=message;el.hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>{el.hidden=true;},5300);}
+async function api(path,opts={}){const config={credentials:'same-origin',...opts,headers:{...(opts.headers||{})}};if('json'in config){config.headers['Content-Type']='application/json';config.body=JSON.stringify(config.json);delete config.json;}if(config.method&&!['GET','HEAD'].includes(config.method))config.headers['X-CSRF-Token']=state.csrf;let response;try{response=await fetch('/api/'+path,config);}catch(e){throw new Error('Server connection unavailable');}const data=await response.json().catch(()=>({error:'Unexpected server response'}));if(!response.ok)throw new Error(data.error||`HTTP ${response.status}`);return data;}
+function requireAccount(action){if(state.user)return Promise.resolve().then(action);state.pending=action;openAuth('guest');return Promise.resolve();}
+function showEmpty(){const hasPhoto=state.nodes.length>0;$('emptyState').hidden=hasPhoto;$('boardHelp').hidden=!hasPhoto;$('photoActions').hidden=!state.selected;}
+function setView(){const world=$('boardWorld');world.style.transform=`translate(${state.pan.x}px,${state.pan.y}px) scale(${state.zoom})`;}
+function screenToWorld(cx,cy){const b=$('board').getBoundingClientRect();return{x:(cx-b.left-b.width/2-state.pan.x)/state.zoom,y:(cy-b.top-b.height/2-state.pan.y)/state.zoom};}
+const byId=id=>state.nodes.find(n=>n.id===id);
+const assetById=id=>state.assets.find(a=>a.id===id);
+function drawLinks(){const root=$('linkLines');root.replaceChildren();for(const n of state.nodes){if(!n.parent)continue;const parent=byId(n.parent);if(!parent)continue;const path=document.createElementNS('http://www.w3.org/2000/svg','path');const mid=(parent.x+n.x)/2;path.setAttribute('d',`M ${parent.x} ${parent.y} C ${mid} ${parent.y}, ${mid} ${n.y}, ${n.x} ${n.y}`);root.append(path);}}
+function drawPictures(){const layer=$('pictures');layer.replaceChildren();for(const n of state.nodes){const a=assetById(n.id);if(!a)continue;const fig=document.createElement('figure');fig.className='picture'+(n.id===state.hero?' hero':'')+(n.kind==='component'?' component':'')+(state.selected===n.id?' selected':'');fig.style.left=n.x+'px';fig.style.top=n.y+'px';fig.dataset.assetId=n.id;fig.tabIndex=0;fig.setAttribute('aria-label',(n.label||a.view)+'; drag to move');const inner=document.createElement('div');inner.className='picture-inner';const img=document.createElement('img');img.src=a.url;img.alt=n.label||'Vehicle image';img.draggable=false;inner.append(img);const label=document.createElement('figcaption');label.textContent=n.label||a.view||'Photo';fig.append(inner,label);fig.addEventListener('pointerdown',ev=>{if(ev.button!==0)return;ev.stopPropagation();ev.preventDefault();const start=screenToWorld(ev.clientX,ev.clientY);state.drag={kind:'image',id:n.id,anchor:start,x:n.x,y:n.y,moved:false};fig.setPointerCapture(ev.pointerId);});fig.addEventListener('pointermove',ev=>{if(state.drag?.kind!=='image'||state.drag.id!==n.id)return;const pos=screenToWorld(ev.clientX,ev.clientY);const dx=pos.x-state.drag.anchor.x,dy=pos.y-state.drag.anchor.y;if(Math.abs(dx)+Math.abs(dy)>2)state.drag.moved=true;n.x=Math.round(state.drag.x+dx);n.y=Math.round(state.drag.y+dy);fig.style.left=n.x+'px';fig.style.top=n.y+'px';drawLinks();});fig.addEventListener('pointerup',ev=>{if(state.drag?.id!==n.id)return;const moved=state.drag.moved;state.drag=null;if(fig.hasPointerCapture(ev.pointerId))fig.releasePointerCapture(ev.pointerId);selectPhoto(n.id);if(moved)saveTable().catch(e=>notify(e.message));});fig.addEventListener('pointercancel',()=>{state.drag=null;});fig.addEventListener('keydown',ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();selectPhoto(n.id);}});fig.addEventListener('dblclick',()=>makeMain(n.id));layer.append(fig);}drawLinks();showEmpty();}
+function selectPhoto(id){state.selected=id;for(const item of document.querySelectorAll('.picture'))item.classList.toggle('selected',item.dataset.assetId===id);const n=byId(id);$('selectedPhotoLabel').textContent=n?.label||'Photo';$('makeMain').hidden=!n||n.id===state.hero;showEmpty();}
+function appendNode(asset,kind,label,parent=null,spot=null){if(byId(asset.id))return;const n={id:asset.id,kind,label,parent,x:spot?.x??0,y:spot?.y??0};state.nodes.push(n);if(!state.assets.some(a=>a.id===asset.id))state.assets.unshift(asset);drawPictures();}
+function makeMain(id){if(!assetById(id))return;const previous=byId(state.hero),n=byId(id);if(!n)return;if(previous&&previous!==n){previous.kind='source';}state.hero=id;n.kind='hero';n.parent=null;n.x=0;n.y=0;selectPhoto(id);drawPictures();saveTable().catch(e=>notify(e.message));}
+function removePhoto(){if(!state.selected)return;const id=state.selected;state.nodes=state.nodes.filter(n=>n.id!==id);for(const n of state.nodes)if(n.parent===id)n.parent=null;if(state.hero===id)state.hero=null;state.selected=state.hero||null;drawPictures();saveTable().catch(e=>notify(e.message));}
+function resetTableView(){state.pan={x:0,y:0};state.zoom=1;setView();}
+function fitView(){if(!state.nodes.length){resetTableView();return;}const minX=Math.min(...state.nodes.map(n=>n.x-(n.id===state.hero?230:125)));const maxX=Math.max(...state.nodes.map(n=>n.x+(n.id===state.hero?230:125)));const minY=Math.min(...state.nodes.map(n=>n.y-(n.id===state.hero?170:100)));const maxY=Math.max(...state.nodes.map(n=>n.y+(n.id===state.hero?170:100)));const b=$('board').getBoundingClientRect();state.zoom=Math.max(.18,Math.min(1.1,(b.width-110)/(maxX-minX+80),(b.height-270)/(maxY-minY+80)));state.pan={x:-(minX+maxX)/2*state.zoom,y:-(minY+maxY)/2*state.zoom};setView();}
+function saveTable(){if(!state.project)return Promise.resolve();const pid=state.project.id;const payload={hero:state.hero,nodes:state.nodes.map(n=>({...n})),pan:{...state.pan},zoom:state.zoom};state.persistQueue=state.persistQueue.catch(()=>{}).then(async()=>{if(!state.project||state.project.id!==pid)return;const current=await api('projects/'+pid);const settings={...(current.project.settings||{}),tabletop:payload};const updated=await api('projects/'+pid,{method:'PATCH',json:{settings,selected_asset:state.hero||null}});state.project=updated.project;});return state.persistQueue;}
+function restoreTable(){state.nodes=[];state.hero=null;state.selected=null;state.pan={x:0,y:0};state.zoom=1;const table=state.project?.settings?.tabletop;if(table&&Array.isArray(table.nodes)){state.nodes=table.nodes.filter(n=>assetById(n.id)&&Number.isFinite(n.x)&&Number.isFinite(n.y)).map(n=>({id:n.id,kind:n.kind||'photo',label:String(n.label||'Photo').slice(0,90),parent:n.parent||null,x:n.x,y:n.y}));state.hero=state.nodes.some(n=>n.id===table.hero)?table.hero:null;if(table.pan&&Number.isFinite(table.pan.x)&&Number.isFinite(table.pan.y))state.pan=table.pan;if(Number.isFinite(table.zoom))state.zoom=Math.max(.18,Math.min(2.5,table.zoom));}setView();drawPictures();if(state.hero)selectPhoto(state.hero);}
+async function loadProject(id){const result=await api('projects/'+id);state.project=result.project;state.assets=result.assets;restoreTable();try{localStorage.setItem(lastKey,id);}catch(e){}$('promptInput').value='';renderSources();await loadProjects();}
+async function loadProjects(){if(!state.user)return;const result=await api('projects');state.projects=result.projects;const wrap=$('projectsList');wrap.replaceChildren();for(const p of state.projects){const b=document.createElement('button');const title=document.createElement('span');title.textContent=p.name;const small=document.createElement('small');small.textContent=p.settings?.tabletop?.nodes?.length?`${p.settings.tabletop.nodes.length} photos · ${new Date(p.updated_at*1000).toLocaleDateString()}`:'Saved project';b.append(title,small);b.onclick=()=>loadProject(p.id).then(()=>closeDrawer()).catch(e=>notify(e.message));wrap.append(b);}}
+async function newProject(prompt=''){const r=await api('projects',{method:'POST',json:{name:(prompt||'New image table').slice(0,70),prompt,kind:'car'}});await loadProject(r.id);return r.id;}
+function renderSources(){const wrap=$('sourceList');wrap.replaceChildren();if(!state.assets.length){const p=document.createElement('p');p.textContent='No images saved yet.';p.className='quiet';wrap.append(p);return;}for(const a of state.assets){const b=document.createElement('button');const im=document.createElement('img');im.src=a.url;im.alt=a.view;im.loading='lazy';const label=document.createElement('span');label.textContent=(a.view||'Reference').replaceAll('_',' ');b.append(im,label);b.onclick=()=>{if(!byId(a.id))appendNode(a,'source',label.textContent,null,{x:0,y:0});makeMain(a.id);closeDrawer();};wrap.append(b);}}
+async function session(){const s=await api('session');state.csrf=s.csrf;state.user=s.user;updateProfile();if(state.user){await Promise.all([loadProviders(),loadParts()]);await loadProjects();const saved=localStorage.getItem(lastKey);if(saved&&state.projects.some(p=>p.id===saved)){const project=state.projects.find(p=>p.id===saved);if(project?.settings?.tabletop?.nodes?.length)await loadProject(saved);}}}
+function updateProfile(){const name=state.user?.display_name||'Guest';$('profileInitial').textContent=name.slice(0,1).toUpperCase();$('profileImage').hidden=!state.user?.avatar_url;if(state.user?.avatar_url)$('profileImage').src=state.user.avatar_url+'?'+Date.now();$('upgradeButton').hidden=state.user?.role!=='guest';const scope=$('logScope');if(state.user?.role==='admin'&&!scope.querySelector('[value="server"]'))scope.add(new Option('Server','server'));if(state.user?.role!=='admin'){const option=scope.querySelector('[value="server"]');if(option)option.remove();}}
+async function loadParts(){const r=await api('parts');state.catalog=r.assemblies||[];updatePartsChoice();}
+async function loadProviders(){const r=await api('providers');state.providers=r.providers||[];refreshProviderOptions();}
+function isReady(p){return p&&p.images&&((p.enabled&&p.has_key)||state.tempKeys[p.id]?.enabled);}
+function preferred(){const value=$('imageProvider').value;return state.providers.find(p=>p.id===value&&isReady(p))||null;}
+function refreshProviderOptions(){const select=$('imageProvider'),prev=select.value||localStorage.getItem(prefKey)||'';select.replaceChildren(new Option('Choose model',''));for(const p of state.providers.filter(isReady))select.add(new Option((p.name+' · '+(state.tempKeys[p.id]?.image_model||p.image_model||'Image')).slice(0,100),p.id));if([...select.options].some(o=>o.value===prev))select.value=prev;else if(select.options.length===2)select.selectedIndex=1;const selected=$('providerSelect');const old=selected.value||localStorage.getItem('umi.table.config.provider')||'';selected.replaceChildren();for(const p of state.providers.filter(p=>p.images))selected.add(new Option(p.name,p.id));if([...selected.options].some(o=>o.value===old))selected.value=old;renderProviderEditor();}
+function renderProviderEditor(){const id=$('providerSelect').value;const p=state.providers.find(p=>p.id===id);if(!p)return;const temp=state.tempKeys[id]||{};$('providerImageModel').value=temp.image_model||p.image_model||'';$('providerEndpoint').value=temp.base_url||p.base_url||'';$('providerKey').value='';$('providerEnabled').checked=temp.enabled??p.enabled;$('providerInfo').textContent=p.has_key?'Key saved on server':temp.api_key?'Key kept in this browser tab':'No credential saved';$('providerResult').textContent='';localStorage.setItem('umi.table.config.provider',id);}
+function providerFields(){return{enabled:$('providerEnabled').checked,model:(state.providers.find(p=>p.id===$('providerSelect').value)||{}).model||'',image_model:$('providerImageModel').value.trim(),base_url:$('providerEndpoint').value.trim(),api_key:$('providerKey').value.trim()};}
+async function storeProvider(where){const id=$('providerSelect').value;if(!id)return;const val=providerFields();if(where==='server'&&!val.api_key&&state.tempKeys[id]?.api_key)val.api_key=state.tempKeys[id].api_key;if(where==='tab'){const p=state.providers.find(p=>p.id===id);state.tempKeys[id]={...val,api_key:val.api_key||state.tempKeys[id]?.api_key||'',enabled:true};sessionStorage.setItem(tempKey,JSON.stringify(state.tempKeys));$('providerResult').textContent='Available in this browser tab until it closes.';refreshProviderOptions();$('providerSelect').value=id;return;}await api('providers/'+id,{method:'PUT',json:val});await loadProviders();$('providerSelect').value=id;$('providerResult').textContent='Saved encrypted on server.';}
+async function testProvider(){const id=$('providerSelect').value;if(!id)return;const val=providerFields();$('providerResult').textContent='Checking connection…';try{const r=await api('providers/'+id+'/check',{method:'POST',json:{...val,api_key:val.api_key||state.tempKeys[id]?.api_key||''}});$('providerResult').textContent=r.status+(r.balance!=null?' · balance '+r.balance:'');}catch(e){$('providerResult').textContent=e.message;}}
+function openDrawer(tab='projects'){const drawer=$('drawer');drawer.hidden=false;switchTab(tab);}
+function closeDrawer(){$('drawer').hidden=true;}
+function switchTab(tab){for(const s of document.querySelectorAll('.tab-content'))s.hidden=s.id!=='tab-'+tab;for(const b of document.querySelectorAll('[data-tab]'))b.classList.toggle('active',b.dataset.tab===tab);$('drawerTitle').textContent=({projects:'Projects',sources:'Image library',models:'Models',logs:'Activity',appearance:'Appearance',updates:'Development updates'})[tab]||'Workspace';if(tab==='logs')refreshLogs();}
+function selectedPartSet(){const kind=$('partCollection').value;const flat=state.catalog.flatMap(g=>g.parts);const requested=kind==='all'?flat:kind==='interior'?interiors:kind==='running'?running:essentials;const seen=new Set();return requested.filter(n=>!seen.has(n)&&seen.add(n));}
+function updatePartsChoice(){const list=selectedPartSet(),wrap=$('partPreview');wrap.replaceChildren();for(const n of list.slice(0,48)){const chip=document.createElement('span');chip.textContent=n;wrap.append(chip);}if(list.length>48){const chip=document.createElement('span');chip.textContent=`+${list.length-48} more`;wrap.append(chip);}$('partCount').textContent=`${list.length} separate images · ${list.length} potentially billable model calls. Each will use the current main image as its sole visual reference.`;}
+function openPartChoice(){if(!state.hero){notify('Choose a main image first.');return;}$('partsModal').hidden=false;updatePartsChoice();}
+function jobVisible(title,detail,count,done=0){$('jobStatus').hidden=false;$('jobTitle').textContent=title;$('jobDetail').textContent=detail;$('jobProgress').style.width=Math.round(done/Math.max(count,1)*100)+'%';$('stopJob').hidden=count<=1;}
+function tickJob(){const s=Math.floor((Date.now()-state.jobStarted)/1000);$('jobTimer').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');}
+function beginJob(title,detail,total){state.working=true;state.stopAfter=false;$('stopJob').disabled=false;state.jobStarted=Date.now();jobVisible(title,detail,total,0);tickJob();state.progressTimer=setInterval(tickJob,1000);$('promptSubmit').disabled=true;$('anglesButton').disabled=true;$('partsButton').disabled=true;}
+function endJob(){clearInterval(state.progressTimer);state.progressTimer=null;state.working=false;$('jobStatus').hidden=true;$('promptSubmit').disabled=false;$('anglesButton').disabled=false;$('partsButton').disabled=false;}
+function generateRequest(source,mode,partName='',prompt='',instructions=''){const model=preferred();if(!model)throw new Error('Connect an image model in Workspace → Models');return api('concepts/generate',{method:'POST',json:{project_id:state.project.id,provider_id:model.id,mode,part_name:partName,prompt:prompt||'The exact vehicle in the image',instructions,reference_ids:source?[source]:[],source_asset_id:source||null,temp_provider:state.tempKeys[model.id]||null}});}
+async function makeConcept(prompt){const model=preferred();if(!model){openDrawer('models');notify('Connect an image-generation model first.');return;}await requireAccount(async()=>{if(state.working)return;const text=prompt.trim();if(!text)return;if(!state.project||state.nodes.length){await newProject(text);}else if(!state.project.prompt){const updated=await api('projects/'+state.project.id,{method:'PATCH',json:{prompt:text,name:text.slice(0,70)}});state.project=updated.project;}beginJob('Creating main image',model.name+' · '+model.image_model,1);try{const r=await generateRequest(null,'front_3q','',text,'ONE standalone photorealistic vehicle image, no inset views, labels, diagrams, panels or typography.');const a=r.assets[0];appendNode(a,'hero','Main image',null,{x:0,y:0});state.hero=a.id;selectPhoto(a.id);await saveTable();$('promptInput').value='';notify('Main photo ready. Generate angles or parts from this image.');}catch(e){notify(e.message);}finally{endJob();}});}
+async function generateSequence(items,kind){if(state.working)return;if(!state.hero){notify('Select a main photo first.');return;}const model=preferred();if(!model){openDrawer('models');notify('Connect an image-generation model first.');return;}const source=state.hero;const original=assetById(source);if(!original)return;const todo=items.filter(it=>!state.nodes.some(n=>n.parent===source&&n.kind===kind&&n.label===it.label));if(!todo.length){notify('All requested images are already on this table.');return;}if(todo.length>12&&!window.confirm(`Generate ${todo.length} separate images? This may incur ${todo.length} paid API calls. The sequence can be stopped after the current image.`))return;
+ beginJob(kind==='angle'?'Generating angles':'Generating parts',model.name+' · source: Main image',todo.length);let done=0;let failed=null;
+ try{for(const item of todo){if(state.stopAfter)break;jobVisible(kind==='angle'?'Generating angles':'Generating parts',`${done+1} of ${todo.length} · ${item.label} · ${model.name}`,todo.length,done);try{const r=await generateRequest(source,item.mode,item.part_name||'','The exact vehicle shown in the one supplied image',item.instructions||'');const a=r.assets[0];let pos;if(kind==='angle'){const entry=angles.find(x=>x[0]===item.mode);pos={x:entry[2],y:entry[3]};}else{const index=state.nodes.filter(n=>n.kind==='component').length;pos={x:830+(index%4)*240,y:-340+Math.floor(index/4)*205};}appendNode(a,kind,item.label,source,pos);await saveTable();done++;$('jobProgress').style.width=(done/todo.length*100)+'%';}catch(e){failed=e;notify(`${item.label}: ${e.message}`);break;}}if(done&&kind==='angle'&&state.zoom>.68){state.zoom=.67;setView();await saveTable();}if(done)notify(`${done} separate image${done===1?'':'s'} added to the table${failed?' before stopping':''}.`);}finally{endJob();}}
+async function uploadImage(file){if(!file)return;if(!['image/png','image/jpeg','image/webp'].includes(file.type)){notify('Choose a JPG, PNG or WebP image.');return;}if(file.size>9e6){notify('Image exceeds 9 MB.');return;}return requireAccount(async()=>{try{if(!state.project)await newProject('Uploaded reference');const data=new FormData();data.append('project_id',state.project.id);data.append('image',file);const r=await api('assets/upload',{method:'POST',body:data});const asset={id:r.id,url:r.url,view:'reference',source:'upload'};appendNode(asset,'hero','Main image',null,{x:0,y:0});makeMain(asset.id);await saveTable();notify('Image added as main photo.');}catch(e){notify(e.message);}});}
+async function refreshLogs(){if(!state.user){$('logsText').textContent='Sign in to see activity.';return;}try{const r=await api('logs?scope='+encodeURIComponent($('logScope').value)+'&limit=160');state.logText=r.entries.map(e=>`${e.time||e.ts||''} [${e.level||'INFO'}] ${e.event||e.action||''} ${e.status||''}`).join('\n');$('logsText').textContent=state.logText||'No activity yet.';}catch(e){$('logsText').textContent=e.message;}}
+function releaseNotes(){const list=$('releaseList');list.replaceChildren();const versions=[['0.2.0','2026-11-11','Fresh image table','One photo at the centre; independently generated angle and part photos; free positioning; subtle connections; queues with per-image progress'],['0.1.16','2026-11-11','Selection progress','Preserved image visibility while editing'],['0.1.14','2026-11-11','Image focus','Improved reference prioritisation'],['0.1.11','2026-11-10','Meta models','Muse integration and SAM segmentation']];for(const [version,date,title,description] of versions){const div=document.createElement('div');div.className='quiet';div.style.borderBottom='1px solid #78908733';div.style.paddingBottom='10px';const h=document.createElement('strong');h.style.color='var(--ink)';h.textContent=`v${version} · ${title}`;const d=document.createElement('div');d.textContent=date+' · '+description;div.append(h,d);list.append(div);}}
+function applyLook(){const theme=localStorage.getItem('umi.table.theme')||'dark';document.body.dataset.theme=theme;$('themeSelect').value=theme;const font=localStorage.getItem('umi.table.font')||'';$('fontChoice').value=font;document.documentElement.style.setProperty('--font',font?font.replace(/[;{}<>]/g,'').slice(0,100)+',system-ui,sans-serif':'system-ui,-apple-system,Helvetica Neue,sans-serif');}
+function openAuth(mode='guest'){state.authMode=mode;$('authModal').hidden=false;for(const b of document.querySelectorAll('[data-auth]'))b.classList.toggle('active',b.dataset.auth===mode);$('authHeading').textContent=mode==='guest'?'Your name':mode==='login'?'Sign in':mode==='upgrade'?'Protect your profile':'Create account';$('guestNameWrap').hidden=mode==='login';$('authUserWrap').hidden=mode==='guest';$('authPasswordWrap').hidden=mode==='guest';$('authEmailWrap').hidden=!(mode==='register'||mode==='upgrade');$('authError').textContent='';}
+function closeAuth(){$('authModal').hidden=true;}
+async function authSubmit(ev){ev.preventDefault();const mode=state.authMode;const name=$('guestName').value.trim();const username=$('authUser').value.trim();const password=$('authPassword').value;let path,body;if(mode==='guest'){path='guest';body={name};}else if(mode==='login'){path='login';body={username,password};}else if(mode==='upgrade'){path='account/upgrade';body={username,password,email:$('authEmail').value.trim()||undefined};}else{path='register';body={name:name||username,username,password,email:$('authEmail').value.trim()||undefined};}try{await api(path,{method:'POST',json:body});closeAuth();const follow=state.pending;state.pending=null;await session();if(follow)await follow();}catch(e){$('authError').textContent=e.message;}}
+async function saveProfile(ev){ev.preventDefault();try{await api('profile',{method:'PUT',json:{display_name:$('displayName').value,bio:$('profileBio').value,focus:$('profileFocus').value}});const file=$('avatarUpload').files[0];if(file){const d=new FormData();d.append('image',file);await api('profile/avatar',{method:'POST',body:d});}const s=await api('session');state.user=s.user;updateProfile();$('profileModal').hidden=true;notify('Profile saved.');}catch(e){notify(e.message);}}
+function openProfile(){if(!state.user){openAuth('guest');return;}$('displayName').value=state.user.display_name||'';$('profileBio').value=state.user.bio||'';$('profileFocus').value=state.user.focus||'';$('profileModal').hidden=false;}
 function bind(){
- $('#providerFilter').onchange=renderProviders;$('#providerSelect').onchange=()=>{state.selectedProvider=$('#providerSelect').value;renderProviderEditor();};$('#imageProviderSelect').onchange=()=>{$('#galleryImageModel').value=$('#imageProviderSelect').value;saveChoices();};$('#modelSelect').onchange=saveChoices;$('#galleryImageModel').onchange=()=>{$('#imageProviderSelect').value=$('#galleryImageModel').value;saveChoices();};$('#promptForm').addEventListener('submit',sendPrompt);$('#promptInput').addEventListener('input',keepDraft);$('#promptInput').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('#promptForm').requestSubmit();}});
- $('#releaseVersion').onclick=()=>showReleaseNotes(true);$('#updatesButton').onclick=()=>showReleaseNotes(true);$('#closeReleaseNotes').onclick=closeReleaseNotes;$('#dismissReleaseNotes').onclick=closeReleaseNotes;$('#releaseNotes').addEventListener('wheel',()=>clearTimeout(showReleaseNotes.timer),{passive:true});$('#releaseNotes').addEventListener('pointerdown',()=>clearTimeout(showReleaseNotes.timer));
- $('#homeButton').onclick=()=>{if(state.project){$('#welcome').hidden=true;$('#conversation').hidden=state.messages.length===0;toggleGallery(true);toast('Workspace restored');}else{$('#welcome').hidden=false;}$('#promptInput').focus();};$('#toolsButton').onclick=()=>{const willShow=$('#toolsMenu').hidden;$('#toolsMenu').hidden=!willShow;$('#toolsButton').setAttribute('aria-expanded',String(willShow));};$$('#toolsMenu .tool').forEach(b=>b.addEventListener('click',closeTools));$('#chatButton').onclick=()=>{$('#conversation').hidden=state.messages.length===0?true:!$('#conversation').hidden;};$('#settingsButton').onclick=()=>openSettings('models');$('#closeSettings').onclick=closeSettings;$('#drawerBackdrop').onclick=closeSettings;
- $$('.drawer-tabs button').forEach(b=>b.onclick=()=>selectSettings(b.dataset.settings));$('#accountButton').onclick=()=>state.user?openSettings('profile'):showAuth('guest');$('#accountAction').onclick=()=>{if(state.user?.role==='guest'){closeSettings();showAuth('upgrade');}else if(state.user){logout();}else{closeSettings();showAuth('register');}};
- $('#logoutButton').onclick=logout;$('#profileForm').onsubmit=saveProfile;$('#profileAvatar').onchange=e=>saveAvatar(e.target.files[0]);
- for(const id of ['themeSelect','accentColor','surfaceColor','textColor','fontSelect','fontCustom','uiScale'])$('#'+id).addEventListener('input',saveAppearance);$('#resetAppearance').onclick=resetAppearance;$('#fontUpload').onchange=e=>uploadFont(e.target.files[0]);
- $('#authForm').onsubmit=submitAuth;$('#closeAuth').onclick=()=>{$('#authOverlay').hidden=true;state.pending=null;};$('#guestMode').onclick=()=>selectAuthMode('guest');$('#loginMode').onclick=()=>selectAuthMode('login');$('#registerMode').onclick=()=>selectAuthMode(state.user?.role==='guest'?'upgrade':'register');
- $('#partsButton').onclick=()=>withSession(async()=>togglePanel('partsPane'));$('#garageButton').onclick=()=>withSession(async()=>togglePanel('garagePane'));$('#editButton').onclick=()=>togglePanel('editPane');$('#closeParts').onclick=()=>$('#partsPane').hidden=true;$('#closeGarage').onclick=()=>$('#garagePane').hidden=true;$('#closeEdit').onclick=()=>$('#editPane').hidden=true;
- $('#partSearch').oninput=renderParts;$('#newProject').onclick=()=>withSession(async()=>{await createProject();hideSidePanels();$('#welcome').hidden=false;$('#promptInput').focus();});$('#manifestButton').onclick=()=>withSession(async()=>{if(!state.project){toast('Create a project first');return;}const manifest=await api('projects/'+state.project.id+'/manifest');downloadJSON(manifest,'UMI_'+state.project.id.slice(0,8)+'_manifest.json');});
- $('#galleryAction').onchange=()=>{updateGalleryModeUI();saveImageOptions();};$('#gallerySystem').onchange=saveImageOptions;$('#galleryPart').oninput=saveImageOptions;$('#galleryInstructions').oninput=saveImageOptions;$('#collapseGallery').onclick=()=>{const collapsed=$('#galleryPane').classList.toggle('collapsed');$('#collapseGallery').textContent=collapsed?'□':'−';};enableGalleryDrag();
- document.addEventListener('umi-preview-step',event=>openPreview(state.previewIndex+event.detail));
- $('#attachButton').onclick=()=>$('#uploadInput').click();$('#uploadInput').onchange=e=>{uploadFile(e.target.files[0]).catch(err=>toast(err.message,true));e.target.value='';};$('#showGallery').onclick=()=>toggleGallery(true);$('#closeGallery').onclick=()=>toggleGallery(false);$('#generateButton').onclick=generateConcepts;$('#exportButton').onclick=()=>withSession(async()=>{if(!state.project){toast('Create a project first');return;}window.location.href='/api/projects/'+state.project.id+'/export';});
- $('#clearChatView').onclick=()=>$('#conversation').hidden=true;for(const id of ['bodyColor','rideHeight','wheelSize','explodeToggle'])$('#'+id).oninput=applyModelSettings;$('#saveDesign').onclick=()=>saveModel().catch(e=>toast(e.message,true));$('#driveButton').onclick=toggleDrive;$('#resetDriveButton').onclick=()=>state.viewer?.resetDriving();
- $('#logsButton').onclick=showLogs;$('#closeLogs').onclick=closeLogs;$('#collapseLogs').onclick=()=>{const collapsed=$('#logWindow').classList.toggle('collapsed');$('#collapseLogs').textContent=collapsed?'□':'−';};$('#logSmaller').onclick=()=>changeLogSize(-1);$('#logLarger').onclick=()=>changeLogSize(1);$('#logScope').onchange=refreshLogs;$('#refreshLogs').onclick=refreshLogs;$('#copyLogs').onclick=async()=>{try{await navigator.clipboard.writeText(state.logText);toast('Session log copied');}catch(e){toast('Clipboard unavailable',true);}};enableLogDrag();
- let depth=0;document.addEventListener('dragenter',e=>{if(![...(e.dataTransfer?.types||[])].includes('Files'))return;depth++;$('#dropOverlay').hidden=false;});document.addEventListener('dragover',e=>{if([...(e.dataTransfer?.types||[])].includes('Files'))e.preventDefault();});document.addEventListener('dragleave',e=>{if(![...(e.dataTransfer?.types||[])].includes('Files'))return;depth=Math.max(0,depth-1);if(!depth)$('#dropOverlay').hidden=true;});document.addEventListener('drop',e=>{e.preventDefault();depth=0;$('#dropOverlay').hidden=true;const file=[...(e.dataTransfer?.files||[])].find(f=>f.type.startsWith('image/'));if(file)uploadFile(file).catch(err=>toast(err.message,true));});
- document.addEventListener('click',e=>{if(!e.target.closest('.header-right'))closeTools();});document.addEventListener('keydown',e=>{if(e.key==='Escape'){closePreview();closeTools();$('#authOverlay').hidden=true;closeSettings();hideSidePanels();$('#galleryPane').hidden=true;}});
+ $('board').addEventListener('pointerdown',e=>{if(e.button!==0||e.target.closest('.picture'))return;state.drag={kind:'board',x:e.clientX,y:e.clientY,px:state.pan.x,py:state.pan.y};$('board').setPointerCapture(e.pointerId);$('board').classList.add('grabbing');});
+ $('board').addEventListener('pointermove',e=>{if(state.drag?.kind!=='board')return;state.pan={x:state.drag.px+e.clientX-state.drag.x,y:state.drag.py+e.clientY-state.drag.y};setView();});
+ const finish=e=>{if(state.drag?.kind==='board'){state.drag=null;$('board').classList.remove('grabbing');if($('board').hasPointerCapture(e.pointerId))$('board').releasePointerCapture(e.pointerId);saveTable().catch(()=>{});}};$('board').addEventListener('pointerup',finish);$('board').addEventListener('pointercancel',finish);
+ $('board').addEventListener('wheel',ev=>{ev.preventDefault();const current=screenToWorld(ev.clientX,ev.clientY),next=Math.max(.18,Math.min(3.5,state.zoom*Math.exp(-ev.deltaY*.0014)));const b=$('board').getBoundingClientRect();state.zoom=next;state.pan.x=ev.clientX-b.left-b.width/2-current.x*next;state.pan.y=ev.clientY-b.top-b.height/2-current.y*next;setView();},{passive:false});
+ $('board').addEventListener('dblclick',e=>{if(e.target.closest('.picture'))return;fitView();saveTable().catch(()=>{});});
+ $('board').addEventListener('dragover',e=>{e.preventDefault();});$('board').addEventListener('drop',e=>{e.preventDefault();const file=[...(e.dataTransfer?.files||[])].find(f=>f.type.startsWith('image/'));if(file)uploadImage(file);});
+ $('homeButton').onclick=()=>{fitView();};$('versionButton').onclick=()=>openDrawer('updates');$('workspaceButton').onclick=()=>{if(!$('drawer').hidden)closeDrawer();else openDrawer('projects');};$('drawerClose').onclick=closeDrawer;for(const tab of document.querySelectorAll('[data-tab]'))tab.onclick=()=>switchTab(tab.dataset.tab);
+ $('profileButton').onclick=openProfile;$('profileClose').onclick=()=>{$('profileModal').hidden=true;};$('profileForm').onsubmit=saveProfile;$('logoutButton').onclick=async()=>{try{await api('logout',{method:'POST',json:{}});location.reload();}catch(e){notify(e.message);}};$('upgradeButton').onclick=()=>{$('profileModal').hidden=true;openAuth('upgrade');};
+ $('promptForm').onsubmit=e=>{e.preventDefault();makeConcept($('promptInput').value).catch(err=>notify(err.message));};$('promptInput').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('promptForm').requestSubmit();}});$('uploadButton').onclick=()=>$('uploadInput').click();$('uploadInput').onchange=e=>{uploadImage(e.target.files[0]);e.target.value='';};
+ $('makeMain').onclick=()=>makeMain(state.selected);$('removePhoto').onclick=removePhoto;$('anglesButton').onclick=()=>generateSequence(angles.map(([mode,label])=>({mode,label})), 'angle');$('partsButton').onclick=openPartChoice;
+ $('partsClose').onclick=$('partsCancel').onclick=()=>{$('partsModal').hidden=true;};$('partCollection').onchange=updatePartsChoice;$('partsStart').onclick=()=>{$('partsModal').hidden=true;const items=selectedPartSet().map(label=>({mode:'component',label,part_name:label}));generateSequence(items,'component');};
+ $('stopJob').onclick=()=>{state.stopAfter=true;$('stopJob').disabled=true;$('jobDetail').textContent='Stopping after this image…';};
+ $('providerSelect').onchange=renderProviderEditor;$('imageProvider').onchange=()=>{localStorage.setItem(prefKey,$('imageProvider').value);};$('providerForm').onsubmit=ev=>{ev.preventDefault();storeProvider('server').catch(e=>notify(e.message));};$('testProvider').onclick=()=>testProvider();$('saveSessionKey').onclick=()=>storeProvider('tab').catch(e=>notify(e.message));$('clearProviderKey').onclick=async()=>{const id=$('providerSelect').value;if(!id)return;delete state.tempKeys[id];sessionStorage.setItem(tempKey,JSON.stringify(state.tempKeys));try{const fields=providerFields();await api('providers/'+id,{method:'PUT',json:{...fields,clear_key:true,enabled:false,api_key:''}});await loadProviders();$('providerSelect').value=id;renderProviderEditor();$('providerResult').textContent='Key removed.';}catch(e){notify(e.message);}};
+ $('newProject').onclick=()=>requireAccount(async()=>{await newProject();closeDrawer();notify('Fresh table created.');});$('exportProject').onclick=()=>{if(!state.project){notify('Choose a project to export.');return;}location.href='/api/projects/'+encodeURIComponent(state.project.id)+'/export';};$('refreshLog').onclick=refreshLogs;$('logScope').onchange=refreshLogs;$('copyLog').onclick=()=>navigator.clipboard.writeText(state.logText).then(()=>notify('Activity copied.')).catch(()=>notify('Clipboard unavailable.'));
+ $('themeSelect').onchange=()=>{localStorage.setItem('umi.table.theme',$('themeSelect').value);applyLook();};$('fontChoice').onchange=()=>{localStorage.setItem('umi.table.font',$('fontChoice').value);applyLook();};$('resetLook').onclick=()=>{localStorage.removeItem('umi.table.theme');localStorage.removeItem('umi.table.font');applyLook();};
+ for(const b of document.querySelectorAll('[data-auth]'))b.onclick=()=>openAuth(b.dataset.auth);$('authForm').onsubmit=authSubmit;$('authClose').onclick=()=>{state.pending=null;closeAuth();};
+ for(const id of ['partsModal','authModal','profileModal'])$(id).addEventListener('pointerdown',e=>{if(e.target===$(id))$(id).hidden=true;});document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeDrawer();$('partsModal').hidden=true;$('authModal').hidden=true;$('profileModal').hidden=true;}});
 }
-loadTempProviders();bind();enablePromptWindow();updateGalleryModeUI();loadAppearance();restoreLocalFont();try{state.logSize=Math.min(23,Math.max(9,Number(localStorage.getItem('umi-lab.log-font')||12)));}catch(e){}$('#logOutput').style.fontSize=state.logSize+'px';initializeViewer();refreshSession().catch(err=>toast('Server connection unavailable: '+err.message,true));maybeShowReleaseNotes();
+async function init(){try{state.tempKeys=JSON.parse(sessionStorage.getItem(tempKey)||'{}')||{};}catch(e){state.tempKeys={};}applyLook();releaseNotes();bind();try{await session();}catch(e){notify('Unable to reach UMI LAB: '+e.message);}showEmpty();}
+init();
+})();

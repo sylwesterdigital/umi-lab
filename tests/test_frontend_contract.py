@@ -1,64 +1,50 @@
-"""Release-level offline guarantees for a minimal 3D-first studio."""
+"""Design-table contracts: minimal launch, image nodes and generation queue."""
 import json
-import re
 import unittest
 from pathlib import Path
+ROOT=Path(__file__).resolve().parent.parent
 
-BASE=Path(__file__).resolve().parent.parent
-
-class FrontendContractTests(unittest.TestCase):
-    def test_clean_launch_has_no_marketing_panels(self):
-        page=(BASE/'frontend/index.html').read_text()
-        self.assertIn('What car or vehicle would you like to create?',page)
-        self.assertIn('id="vehicleCanvas"',page)
-        self.assertNotIn('brand-mark',page)
-        self.assertNotIn('intro-orb',page)
-        self.assertIn('id="galleryPane" class="gallery-tray" hidden',page)
-        self.assertIn('id="logWindow" class="log-window" hidden',page)
-        self.assertIn('id="authOverlay" class="auth-overlay" hidden',page)
-
-    def test_browser_csp_and_settings_contract(self):
-        import base64,hashlib
-        page=(BASE/'frontend/index.html').read_text()
-        js=(BASE/'frontend/js/app.js').read_text()
-        backend=(BASE/'backend/app.py').read_text()
-        match=re.search(r'<script type="importmap">(.*?)</script>',page,re.S)
-        self.assertIsNotNone(match)
-        hashed=base64.b64encode(hashlib.sha256(match.group(1).encode()).digest()).decode()
-        self.assertIn('sha256-'+hashed,backend)
-        self.assertNotIn('unsafe-inline',backend.split('script-src')[1].split(';')[0])
-        self.assertIn('id="modelsSettings"',page)
-        self.assertIn("$('#'+name+'Settings')",js)
-        self.assertNotIn('id="modelSettings"',page)
-        self.assertIn('id="providerSelect"',page)
-        self.assertIn('id="providerEditor"',page)
-        self.assertIn('id="gallerySystem"',page)
-        self.assertIn('id="galleryPart"',page)
-        self.assertNotIn('id="providerList"',page)
-        self.assertIn("form.className='provider-fields-compact'",js)
-        self.assertIn('temp_provider:tempConfig',js)
-        self.assertIn('reference_ids:refs',js)
-        self.assertIn("mode=automatic?'front_3q':",js)
-        self.assertIn('enableGalleryDrag',js)
-        self.assertIn('updateGalleryModeUI',js)
-        self.assertIn('Segment part · Meta SAM 3.1',page)
-        self.assertIn('segments/generate',js)
-        self.assertIn("mode==='annotate'",js)
-        self.assertIn("system_id:systemID",js)
-        self.assertIn("part_name:partName",js)
-        self.assertIn('openPreview',js)
-        self.assertIn('addResumeHint',js)
-        self.assertIn('/continue',js)
-
-    def test_real_physics_and_logs_controls(self):
-        page=(BASE/'frontend/index.html').read_text()
-        viewer=(BASE/'frontend/js/viewer.js').read_text()
-        javascript=(BASE/'frontend/js/app.js').read_text()
-        self.assertIn('cannon-es',page)
-        self.assertIn('CANNON.RaycastVehicle',viewer)
-        self.assertIn('world.step(',viewer)
-        for token in ('enableLogDrag','copyLogs','refreshLogs','logLarger','logSmaller','collapseLogs','showAuth','uploadFont'):
-            self.assertIn(token,javascript)
-        self.assertIn('indexedDB.open',javascript)
-
-if __name__=='__main__':unittest.main()
+class TabletopFrontendTests(unittest.TestCase):
+    def setUp(self):
+        self.page=(ROOT/'frontend/index.html').read_text()
+        self.js=(ROOT/'frontend/js/app.js').read_text()
+        self.css=(ROOT/'frontend/css/styles.css').read_text()
+    def test_blank_workspace_has_no_legacy_panes(self):
+        self.assertIn('What would you love to drive?',self.page)
+        self.assertIn('id="board"',self.page)
+        self.assertIn('id="pictures"',self.page)
+        self.assertIn('id="links"',self.page)
+        self.assertIn('id="promptForm"',self.page)
+        self.assertNotIn('id="galleryPane"',self.page)
+        self.assertNotIn('id="imagePreview"',self.page)
+        self.assertNotIn('id="vehicleCanvas"',self.page)
+        self.assertNotIn('id="chatFeed"',self.page)
+        self.assertIn('id="drawer" class="drawer" hidden',self.page)
+    def test_separate_angle_and_part_images(self):
+        for marker in ("['front','Front'", "['rear','Rear'", "['side','Left side'", "['top','Top'", "['front_3q','Front ¾'", "['rear_3q','Rear ¾'"):
+            self.assertIn(marker,self.js)
+        self.assertIn("{mode:'component',label,part_name:label}",self.js)
+        self.assertIn('source_asset_id:source||null',self.js)
+        self.assertIn('reference_ids:source?[source]:[]',self.js)
+        self.assertIn("state.nodes.some(n=>n.parent===source&&n.kind===kind&&n.label===it.label)",self.js)
+        self.assertIn('await saveTable()',self.js)
+        self.assertIn('state.stopAfter',self.js)
+    def test_photoprint_world_and_minimal_feedback(self):
+        for marker in ('.picture-inner{background:var(--photo)', '#linkLines path{stroke:', '.picture.hero{--w:', '.job-orb{', '.photo-actions{'):
+            self.assertIn(marker,self.css)
+        self.assertIn('pointermove',self.js)
+        self.assertIn('screenToWorld',self.js)
+        self.assertIn('fitView()',self.js)
+        self.assertIn('image/png',self.js)
+        self.assertIn('id="jobStatus"',self.page)
+    def test_api_settings_profiles_and_version(self):
+        self.assertIn('id="providerSelect"',self.page)
+        self.assertIn('id="providerKey"',self.page)
+        self.assertIn('id="authModal"',self.page)
+        self.assertIn('id="profileModal"',self.page)
+        self.assertIn("api('providers/'+id",self.js)
+        self.assertIn("api('profile'",self.js)
+        self.assertIn("api('session')",self.js)
+        version=json.loads((ROOT/'version.json').read_text())['version']
+        self.assertIn(f'content="{version}"',self.page)
+        self.assertIn('script defer src="/static/js/app.js"',self.page)

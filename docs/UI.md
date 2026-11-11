@@ -1,24 +1,13 @@
-# UI
+# UMI LAB Image Table (v0.2.0)
 
-The studio opens into the Three.js workspace with a floating Concepts window.
+A simple, unbounded photo canvas replaces the legacy gallery/3D editor stack.
 
-## Concepts workflows
-- Six-view sheet
-- Annotated parts map
-- System sheet
-- Isolated part
+- The centre **main** photo is generated from a brief or uploaded.
+- **Generate angles** makes six **separate** images, in a sequence, using only the main photo as visual reference.
+- **Generate parts** offers exterior, cabin, running gear, or the full parts catalogue; every item is a **separate paid image call**.
+- Derivatives appear as loose photo prints around the main photo with subtle connecting lines; drag them anywhere.
+- Positions are stored in each project's SQLite-backed settings. Old image assets remain accessible via Workspace → Images.
+- Progress displays the currently generated image, provider and count. Stop completes the current call then halts the rest.
+- No annotation sheets, feature panels, chat transcript or 3D proxy car appear on the starting screen.
 
-Selected gallery images act as visual references for the next workflow action.
-
-- Configure Meta Muse once for chat, image generation and segmentation.
-- Use **Segment part · Meta SAM 3.1** in the Concepts action menu, select exactly one image and name the visible part.
-- Review the preview and download segmentation JSON in the project kit.
-
-## Floating image editor
-
-Open a gallery image to display its editor above the Concepts window. Drag and resize the editor, zoom with trackpad or +/- and pan with hand tool/Space. Draw a rectangle, optionally constrain ratio (Free, 1:1, 3:2, 3:4, 4:3, 16:9), press Enter to confirm or click outside to cancel. Crop and Edit AI save new gallery assets. The image outside an AI-edited rectangle is left unchanged.
-
-Drag the prompt by its grip or use Dock to align with Concepts. Click the UMI LAB wordmark to restore your workspace; use Tools > Conversation to reopen chat.
-
-## v0.1.14
-The top-left version opens release history. Click a gallery image to focus it as the source, use G to grab/move an active rectangle in Image Editor, and view local progress while AI actions run.
+Photo outputs are visual concepts, not reconstructed 3D meshes or validated manufacturing parts. Provider-dependent image fidelity varies.

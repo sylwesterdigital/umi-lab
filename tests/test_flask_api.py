@@ -267,6 +267,27 @@ class FlaskTest(unittest.TestCase):
         self.assertIn('only chassis, no tyres, no glass',captured['prompt'])
         self.assertEqual(len(captured['refs']),1)
 
+    def test_component_is_individual_and_one_reference_only(self):
+        from unittest.mock import patch
+        pid=self.post('/api/projects',{'name':'Single component','prompt':'Old unrelated design'}).json['id']
+        image=Image.new('RGB',(100,70),'blue');raw=io.BytesIO();image.save(raw,'PNG');raw.seek(0)
+        uploaded=self.client.post('/api/assets/upload',data={'project_id':pid,'image':(raw,'source.png')},headers={'X-CSRF-Token':self.csrf},content_type='multipart/form-data')
+        aid=uploaded.json['id']
+        self.client.put('/api/providers/xai',json={'enabled':True,'api_key':'test-key','model':'grok-4.7','image_model':'grok-imagine-image-2.0','base_url':'https://api.x.ai/v1'},headers={'X-CSRF-Token':self.csrf})
+        output=io.BytesIO();Image.new('RGB',(90,90),'white').save(output,'PNG')
+        with patch.object(self.module,'generate_image',return_value=(output.getvalue(),'image/png')) as gen:
+            result=self.post('/api/concepts/generate',{'project_id':pid,'provider_id':'xai','mode':'component','part_name':'Grille','reference_ids':[aid],'source_asset_id':aid})
+        self.assertEqual(result.status_code,200,result.json)
+        self.assertEqual(result.json['images_created'],1)
+        self.assertEqual(result.json['assets'][0]['view'],'component')
+        self.assertEqual(len(gen.call_args.kwargs['reference_images']),1)
+        self.assertIn('ONE component per image',gen.call_args.args[3])
+        self.assertNotIn('Old unrelated design',gen.call_args.args[3])
+        manifest=self.client.get('/api/projects/'+pid+'/manifest').json
+        self.assertIn('Grille',manifest['parts_workflow']['component_images'])
+        rejected=self.post('/api/concepts/generate',{'project_id':pid,'provider_id':'xai','mode':'component','part_name':'Grille','reference_ids':[]})
+        self.assertEqual(rejected.status_code,400)
+
     def test_chat_offline_and_login(self):
         pid=self.post('/api/projects',{'name':'Car'}).json['id']
         response=self.post('/api/chat',{'project_id':pid,'message':'A red supercar'})

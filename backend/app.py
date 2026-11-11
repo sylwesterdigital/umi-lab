@@ -430,7 +430,7 @@ def project_detail(pid):
             prompt=str(body.get('prompt',row['prompt']))[:10000]
             settings=body.get('settings',json.loads(row['settings']))
             if not isinstance(settings,dict):return jsonify(error='Invalid settings'),400
-            if len(json.dumps(settings))>10000:return jsonify(error='Settings too large'),400
+            if len(json.dumps(settings))>300000:return jsonify(error='Settings too large'),400
             selected=body.get('selected_asset',row['selected_asset'])
             if selected and not conn.execute('SELECT 1 FROM assets WHERE id=? AND project_id=?',(selected,pid)).fetchone():
                 return jsonify(error='Unknown asset'),400
@@ -704,6 +704,12 @@ def concept_instruction(brief,mode,style,reference_count,system_id='',part_name=
     elif mode=='system':
         system_name=SYSTEM_LABELS.get(system_id,system_id or 'selected system')
         composition=(f'Generate ONE focused system sheet for the {system_name} of the same vehicle. Highlight the relevant areas, include 3 to 6 supporting detail crops or isolated elements as needed, and add short labels for the major visible components in that system. Keep the rest of the vehicle subdued for context.')
+    elif mode=='component':
+        part=(part_name or 'selected component')[:80]
+        composition=(f'Using exactly the supplied single vehicle reference photograph, produce ONE photorealistic isolated component: {part}. '
+          'Keep the exact same design language, material, finish, color and proportions. Show only that one component, large and centered, '
+          'against a simple neutral light studio background. Do not include the complete vehicle, other parts, inset views, grids, annotations, arrows, captions, diagrams, writing or watermarks. '
+          'ONE component per image, not a component sheet. For parts not visible in the reference, provide a plausible visual concept, never invented dimensions or manufacturing claims.')
     elif mode=='part':
         part=(part_name or 'selected part')[:80]
         if reference_count==1:
@@ -723,7 +729,7 @@ def concepts():
     body=request.get_json(silent=True) or {}
     pid=str(body.get('project_id',''));provider_id=str(body.get('provider_id',''))
     mode=str(body.get('mode') or ('front_3q' if body.get('view_count')==1 else 'sheet'))
-    if mode not in {'sheet','annotate','system','part'} and mode not in VIEWS:return jsonify(error='Unknown view type'),400
+    if mode not in {'sheet','annotate','system','part','component'} and mode not in VIEWS:return jsonify(error='Unknown view type'),400
     with store.connect(DATA) as conn:
         row=store.project_for(conn,session['uid'],pid)
         if not row:abort(404)
@@ -750,7 +756,8 @@ def concepts():
             return jsonify(error='Selected references are too large'),400
         system_id=str(body.get('system_id') or '').strip(); part_name=str(body.get('part_name') or '').strip()[:80]
         if mode=='system' and system_id not in SYSTEM_LABELS:return jsonify(error='Choose a valid system'),400
-        if mode=='part' and len(part_name)<2:return jsonify(error='Enter a part name'),400
+        if mode in ('part','component') and len(part_name)<2:return jsonify(error='Enter a part name'),400
+        if mode=='component' and len(ids)!=1:return jsonify(error='Select exactly one source photo for component images'),400
         # When actual images are supplied, they define vehicle identity; historical
         # chat/project prompts may describe a different car and must not override them.
         if references:brief='The exact same vehicle shown in the supplied reference image(s)'
@@ -760,7 +767,7 @@ def concepts():
         inference_event(conn,'image',provider_id,model,'started',102,0,len(references))
         try:
             content,mime=generate_image(preset,config,key,instruction,reference_images=references)
-            asset_view={'sheet':'six_view_sheet','annotate':'annotated_parts_map','system':'system_sheet','part':'isolated_part'}.get(mode,mode)
+            asset_view={'sheet':'six_view_sheet','annotate':'annotated_parts_map','system':'system_sheet','part':'isolated_part','component':'component'}.get(mode,mode)
             aid,err=save_asset(conn,pid,content,mime, asset_view,'ai:'+provider_id)
             if err:raise ProviderError(err)
             # Maintain active source: generating a derivative must not silently change the reference.
@@ -785,6 +792,9 @@ def concepts():
             elif mode=='part':
                 parts=workflow.setdefault('part_sheets',{})
                 parts.setdefault(part_name,[]).append(aid)
+            elif mode=='component':
+                components=workflow.setdefault('component_images',{})
+                components.setdefault(part_name,[]).append(aid)
             conn.execute('UPDATE projects SET settings=? WHERE id=?',(json.dumps(settings),pid))
             conn.commit()
             inference_event(conn,'image',provider_id,model,'completed',200,elapsed_ms,len(references))
@@ -792,7 +802,7 @@ def concepts():
             elapsed_ms=round((time.monotonic()-started)*1000)
             inference_event(conn,'image',provider_id,model,'failed',502,elapsed_ms,len(references))
             return jsonify(error=str(exc)),502
-    result_view={'sheet':'six_view_sheet','annotate':'annotated_parts_map','system':'system_sheet','part':'isolated_part'}.get(mode,mode)
+    result_view={'sheet':'six_view_sheet','annotate':'annotated_parts_map','system':'system_sheet','part':'isolated_part','component':'component'}.get(mode,mode)
     return jsonify(assets=[{'id':aid,'url':'/api/media/'+aid,'view': result_view}],
                    warnings=[],views_requested=6 if mode=='sheet' else 1,views_completed=6 if mode=='sheet' else 1,
                    images_created=1,mode=mode,reference_count=len(references),model=model,elapsed_ms=elapsed_ms,system_id=system_id or None,part_name=part_name or None,source_asset_id=source_id or (ids[0] if ids else None))
@@ -873,12 +883,17 @@ def make_manifest(row):
     workflow=settings.get('parts_workflow',{})
     system_sheets=workflow.get('system_sheets',{})
     part_sheets=workflow.get('part_sheets',{})
+    component_images=workflow.get('component_images',{})
+    board=settings.get('tabletop',{}) if isinstance(settings.get('tabletop'),dict) else {}
+    photo_nodes=board.get('nodes',[]) if isinstance(board.get('nodes'),list) else []
+    angle_modes={'front','rear','side','top','front_3q','rear_3q'}
+    individual_angles=sum(1 for n in photo_nodes if isinstance(n,dict) and n.get('kind')=='angle' and n.get('label') in ('Front','Rear','Left side','Top','Front ¾','Rear ¾'))
     parts=[]
     for group in PARTS['assemblies']:
         group_status='mapped' if workflow.get('annotated_assets') else 'concept'
         if group['id'] in system_sheets: group_status='system_sheet'
         for i,name in enumerate(group['parts']):
-            part_status='isolated_sheet' if name in part_sheets else group_status
+            part_status='component_image' if name in component_images else 'isolated_sheet' if name in part_sheets else group_status
             parts.append({'id':f"{group['id']}.{i+1:03d}",'label':name,'assembly':group['id'],
                 'status':part_status,'mask':None,'mesh':None,'cad':None,'material':None,
                 'dimensions_mm':None,'tolerance_mm':None,'printable':False,
@@ -886,10 +901,10 @@ def make_manifest(row):
     return {'schema':'umi.manifest/1.0','version':RELEASE_VERSION,'project':{'id':row['id'],'name':row['name'],
       'prompt':row['prompt'],'kind':row['kind'],'selected_asset':row['selected_asset']},
       'units':'mm','coordinates':PARTS['coordinate_system'],'design_settings':settings,
-      'parts_workflow':{'annotated_assets':workflow.get('annotated_assets',[]),'system_sheets':system_sheets,'part_sheets':part_sheets,'source_references':workflow.get('dissection_source_ids',[]),'sam_runs':workflow.get('sam_runs',[])},
+      'parts_workflow':{'annotated_assets':workflow.get('annotated_assets',[]),'system_sheets':system_sheets,'part_sheets':part_sheets,'component_images':component_images,'source_references':workflow.get('dissection_source_ids',[]),'sam_runs':workflow.get('sam_runs',[])},
       'stages':{'reference':'available' if row['selected_asset'] else 'missing',
                 'segmentation':'sam_masks_available' if workflow.get('sam_runs') else 'annotated' if workflow.get('annotated_assets') else 'not_run',
-                'multiview':'available' if settings.get('last_generation',{}).get('mode')=='sheet' else 'not_reconciled',
+                'multiview':'individual_views_available' if individual_angles>=6 else 'partial_views' if individual_angles else 'available' if settings.get('last_generation',{}).get('mode')=='sheet' else 'not_reconciled',
                 'mesh':'not_generated','cad':'not_generated','manufacturing':'not_validated'},
       'part_count':len(parts),'parts':parts,'manufacturing_ready':False,
       'disclaimer':'Concept BOM only. No inferred geometry is fabrication-ready.'}

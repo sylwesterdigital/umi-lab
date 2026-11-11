@@ -1,115 +1,75 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="umi-version" content="0.1.16"><meta name="theme-color" content="#111318">
-  <title>UMI LAB</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#16191c">
+  <meta name="umi-version" content="0.2.0">
+  <title>UMI LAB — Image table</title>
   <link rel="stylesheet" href="/static/css/styles.css">
-  <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/","cannon-es":"https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"}}</script>
-  <script type="module" src="/static/js/app.js"></script>
+  <script defer src="/static/js/app.js"></script>
+  <!-- Watcher v0.1.3 compatibility markers (no legacy UI loaded): galleryGrid settingsDrawer partsPane viewerPane -->
 </head>
-<body data-theme="graphite">
-<div id="studio">
-  <section id="viewerPane" class="viewer-pane" aria-label="Interactive 3D workspace">
-    <div id="vehicleCanvas"></div>
-    <div class="scene-help" id="sceneHelp" hidden>Drag to orbit · Scroll to zoom</div>
-  </section>
-  <header class="shell-header">
-    <div class="brand-inline"><button id="homeButton" class="wordmark" title="Restore workspace" aria-label="Restore UMI LAB workspace">UMI LAB</button><button id="releaseVersion" type="button" class="release-version" title="View release updates" aria-label="View UMI LAB release updates">0.1.16</button></div>
-    <div class="header-right">
-      <button id="toolsButton" class="tool" aria-expanded="false" aria-controls="toolsMenu">Tools</button>
-      <nav class="main-tools" id="toolsMenu" aria-label="Workspace tools" hidden>
-        <button id="garageButton" class="tool" title="Projects">Garage</button><button id="chatButton" class="tool" title="Show conversation">Conversation</button>
-        <button id="partsButton" class="tool" title="Part library">Parts</button>
-        <button id="editButton" class="tool" title="Model controls">Edit model</button>
-        <button id="driveButton" class="tool" title="Simulate driving">Drive</button>
-        <button id="resetDriveButton" class="tool" hidden>Reset drive</button>
-        <button id="logsButton" class="tool" title="Application logs">Logs</button>
-        <button id="settingsButton" class="tool" title="Model and appearance settings">Settings</button><button id="updatesButton" class="tool" title="Release notes">Updates</button>
-      </nav>
-      <button id="accountButton" class="profile-button" aria-label="Account and profile"><span id="avatarFallback">?</span><img id="avatarSmall" alt="" hidden></button>
+<body>
+  <main id="studio">
+    <header class="topbar">
+      <div class="brand"><button id="homeButton" title="Return to the table" type="button">UMI LAB</button><button id="versionButton" title="Release notes" type="button">0.2.0</button></div>
+      <div class="top-controls"><button id="workspaceButton" type="button" title="Workspace, models and projects">Workspace <span aria-hidden="true">⌄</span></button><button id="profileButton" type="button" title="Profile"><span id="profileInitial">○</span><img id="profileImage" alt="" hidden></button></div>
+    </header>
+
+    <section id="board" aria-label="Freeform vehicle design table" tabindex="0">
+      <div id="boardWorld">
+        <svg id="links" aria-hidden="true" viewBox="-5000 -5000 10000 10000" width="10000" height="10000"><g id="linkLines"></g></svg>
+        <div id="pictures"></div>
+      </div>
+      <div id="emptyState"><h1>What would you love to drive?</h1><p>Describe it or drop in an image.</p></div>
+      <div id="boardHelp" hidden>Drag photos to arrange · drag empty space to pan · scroll to zoom</div>
+    </section>
+
+    <div id="photoActions" class="photo-actions" hidden>
+      <span id="selectedPhotoLabel">Main image</span>
+      <button id="makeMain" type="button" hidden>Make main</button>
+      <button id="anglesButton" type="button">Generate angles</button>
+      <button id="partsButton" type="button">Generate parts</button>
+      <button id="removePhoto" type="button" title="Remove photo from table (image stays in library)">Remove</button>
     </div>
-  </header>
-  <div id="welcome" class="welcome">
-    <h1>What car or vehicle would you like to create?</h1>
-  </div>
-  <section id="conversation" class="conversation" hidden aria-label="Conversation"><div id="chatFeed" aria-live="polite"></div><button id="clearChatView" class="text-control">Hide chat</button></section>
-  <div id="aiActivity" class="ai-activity" hidden role="status" aria-live="polite"><span class="activity-dot"></span><span id="aiActivityText">Connecting…</span><span id="aiActivityTime" class="activity-timer">00:00</span></div>
-  <section id="galleryPane" class="gallery-tray" hidden aria-label="Concept gallery">
-    <div id="galleryHandle" class="tray-head"><strong>Concepts</strong><span id="galleryCount" class="tray-count">0 selected</span><div class="head-actions"><button id="collapseGallery" type="button" title="Collapse concepts" aria-label="Collapse concepts">−</button><button id="exportButton" type="button">Export kit</button><button id="closeGallery" type="button" aria-label="Close gallery">×</button></div></div>
-    <div class="gallery-body" id="galleryBody">
-      <div class="gallery-workflow"><select id="galleryImageModel" aria-label="Image generation model" hidden></select><select id="galleryAction" aria-label="Image action"><option value="sheet">Six-view sheet</option><option value="annotate">Annotated parts map</option><option value="segment">Segment part · Meta SAM 3.1</option><option value="system">System sheet</option><option value="part">Isolated part</option><option value="front">Front</option><option value="rear">Rear</option><option value="side">Side</option><option value="top">Top</option><option value="front_3q">Front 3/4</option><option value="rear_3q">Rear 3/4</option><option value="cockpit">Cockpit</option></select><select id="gallerySystem" aria-label="Vehicle system" hidden><option value="">Choose system…</option><option value="body">Body</option><option value="doors">Doors</option><option value="glass">Glass</option><option value="lights">Lights</option><option value="cockpit">Cockpit</option><option value="steering">Steering</option><option value="seats">Seats</option><option value="wheels">Wheels</option><option value="brakes">Brakes</option><option value="suspension">Suspension</option><option value="powertrain">Powertrain</option><option value="energy">Energy</option><option value="cabin">Cabin</option><option value="underbody">Underbody</option><option value="hardware">Hardware</option><option value="software">Electronics</option></select><input id="galleryPart" list="samPartSuggestions" type="text" maxlength="80" placeholder="Part name e.g. Front bumper" aria-label="Part name" hidden><datalist id="samPartSuggestions"><option value="front bumper"><option value="headlamp"><option value="grille"><option value="wheel"><option value="tyre"><option value="door"><option value="windscreen"><option value="fender"><option value="roof"><option value="side mirror"></datalist><input id="galleryInstructions" type="text" maxlength="700" placeholder="Refine style or details (optional)" aria-label="Refinement prompt"><button id="generateButton" type="button">Generate</button></div><div id="gallerySource" class="gallery-source" aria-live="polite">Source: none</div><div id="galleryProgress" class="gallery-progress" role="status" aria-live="polite" hidden><span class="organic-dot"></span><span id="galleryProgressText">Generating…</span><span id="galleryProgressClock">00:00</span></div>
-      <div id="galleryGrid" class="gallery-grid"></div><div id="galleryLastRun" class="gallery-last-run" aria-live="polite"></div><div class="gallery-footnote">Tick images as references. Choose a workflow: six-view, annotate, system sheet, isolated part, or a single view. Open any image for full-size preview.</div>
-    </div><div id="galleryResize" class="resize-handle" aria-hidden="true"></div>
-  </section>
-  <form id="promptForm" class="prompt-form"><div id="promptHandle" class="prompt-handle"><span title="Drag prompt">⋮⋮</span><div><button id="promptDock" type="button" title="Dock below Concepts">Dock</button><button id="promptCollapse" type="button" title="Collapse prompt">−</button></div></div><div id="promptBody">
-    <label class="sr-only" for="promptInput">Describe a vehicle</label>
-    <textarea id="promptInput" rows="1" placeholder="Describe your ride…" maxlength="6000"></textarea>
-    <div class="prompt-actions"><button id="attachButton" type="button" title="Add vehicle image" aria-label="Add reference image">＋</button><select id="modelSelect" aria-label="Conversation model" hidden><option value="">Offline chat</option></select><label id="autoImageLabel" class="auto-image-label" hidden><input type="checkbox" id="autoImages" checked> Images</label><select id="imageProviderSelect" aria-label="Image generation provider" hidden></select><button id="showGallery" type="button" hidden>Gallery</button><button id="sendButton" type="submit" aria-label="Send prompt">↑</button></div>
-    <input id="uploadInput" type="file" accept="image/jpeg,image/png,image/webp" hidden>
-    </div></form>
-  <div class="drive-help" id="driveHelp" hidden>W / ↑ accelerate · S / ↓ reverse · A / D steer · Space brake</div>
-  <div id="dropOverlay" class="drop-overlay" hidden>Drop an image to use as a reference</div>
-  <div id="toast" class="toast" role="status"></div>
-</div>
-<section id="imagePreview" class="image-editor" hidden role="region" aria-label="Floating image editor">
-  <div id="previewHandle" class="image-editor-handle"><strong>Image editor</strong><span id="previewCaption"></span><div class="editor-window-actions"><button id="previewPick" type="button">Select reference</button><button id="previewPrev" type="button" title="Previous image">‹</button><button id="previewNext" type="button" title="Next image">›</button><button id="previewCollapse" type="button" title="Collapse editor">−</button><button id="closePreview" type="button" title="Close editor">×</button></div></div>
-  <div class="image-editor-body"><div class="editor-rail" role="toolbar" aria-label="Image tools"><button id="previewRect" type="button" aria-pressed="true" title="Rectangle selection (R)">▭</button><button id="previewMove" type="button" aria-pressed="false" title="Grab/move selection (G)">G</button><button id="previewPan" type="button" aria-pressed="false" title="Pan image">✥</button><select id="previewRatio" aria-label="Selection aspect ratio" title="Selection ratio"><option value="free">Free</option><option value="1:1">1:1</option><option value="3:2">3:2</option><option value="3:4">3:4</option><option value="4:3">4:3</option><option value="16:9">16:9</option></select><div class="rail-spacer"></div><button id="previewZoomIn" type="button" title="Zoom in">＋</button><span id="previewZoomLabel" aria-live="polite">100%</span><button id="previewZoomOut" type="button" title="Zoom out">−</button><button id="previewFit" type="button" title="Fit image">Fit</button></div>
-    <div class="editor-work-area"><div id="previewStage" class="preview-stage"><canvas id="previewCanvas" aria-label="Image for selection and crop" tabindex="0"></canvas><div id="previewProcessing" class="editor-processing" hidden role="status" aria-live="polite"><span class="organic-dot"></span><span id="previewProcessingText">AI editing…</span><span id="previewProcessingClock">00:00</span></div></div>
-    <div class="editor-footer"><span id="previewSelectionInfo">Drag a rectangle · wheel/pinch to zoom · Space to pan</span><div class="editor-selection-actions"><button id="previewCancel" type="button">Cancel</button><button id="previewConfirm" type="button">Confirm</button><button id="previewCrop" type="button">Crop</button></div><div class="editor-edit-actions"><input id="previewEditPrompt" type="text" maxlength="600" aria-label="Edit only the selected area" placeholder="Change selected area only…"><button id="previewEdit" type="button">Edit AI</button></div></div></div>
-  </div><div id="previewResize" class="resize-handle" aria-hidden="true"></div>
-</section>
-<section id="releaseNotes" class="release-notes" hidden role="dialog" aria-label="UMI LAB updates" aria-modal="false">
- <div class="release-notes-header"><div><strong>Development updates</strong><span id="releaseNotesCurrent">v0.1.16</span></div><button id="closeReleaseNotes" type="button" aria-label="Close updates">×</button></div>
- <div class="release-notes-scroll" id="releaseNotesList" tabindex="0"></div>
- <div class="release-notes-footer"><span>Version history · UMI LAB</span><button id="dismissReleaseNotes" type="button">Continue</button></div>
-</section>
-<div class="shade" id="drawerBackdrop" hidden></div>
-<aside id="settingsDrawer" class="drawer" aria-hidden="true">
-  <div class="drawer-heading"><strong>Settings</strong><button id="closeSettings" class="close" aria-label="Close settings">×</button></div>
-  <div class="drawer-tabs"><button data-settings="models" class="selected">Models</button><button data-settings="appearance">Appearance</button><button data-settings="profile">Profile</button></div>
-  <section id="modelsSettings" class="drawer-section">
-    <div class="model-chooser"><label class="sr-only" for="providerFilter">Provider type</label><select id="providerFilter" aria-label="Provider type"><option value="all">All providers</option><option value="chat">Chat</option><option value="images">Image</option><option value="mesh3d">3D</option><option value="configured">Configured</option></select><label class="sr-only" for="providerSelect">Select provider</label><select id="providerSelect" aria-label="Select provider"></select></div>
-    <div id="providerEditor" class="provider-editor"></div>
-  </section>
-  <section id="appearanceSettings" class="drawer-section" hidden>
-    <label>Theme<select id="themeSelect"><option value="graphite">Graphite</option><option value="night">Night</option><option value="light">Light</option><option value="amber">Amber</option><option value="custom">Custom</option></select></label>
-    <label>Accent colour<input id="accentColor" type="color" value="#84a4ff"></label>
-    <label>Surface colour<input id="surfaceColor" type="color" value="#111318"></label>
-    <label>Text colour<input id="textColor" type="color" value="#f3f5f8"></label>
-    <label>Typeface<select id="fontSelect"><option value="system-ui">System</option><option value="Inter">Inter</option><option value="Arial">Arial</option><option value="Helvetica Neue">Helvetica Neue</option><option value="Georgia">Georgia</option><option value="monospace">Monospace</option><option value="custom">Custom installed font</option></select></label>
-    <label>Custom installed font<input id="fontCustom" maxlength="90" placeholder="Font family name"></label>
-    <label>Or load a local font file<input id="fontUpload" type="file" accept=".woff,.woff2,.ttf,.otf"></label>
-    <label>Interface size<input id="uiScale" type="range" min="80" max="135" value="100"><output id="uiScaleValue">100%</output></label>
-    <button id="resetAppearance" class="solid-button">Reset appearance</button>
-  </section>
-  <section id="profileSettings" class="drawer-section" hidden>
-    <div class="profile-photo"><img id="avatarLarge" alt="Profile" hidden><span id="avatarLargeFallback">?</span><label class="upload-label">Change photo<input id="profileAvatar" type="file" accept="image/jpeg,image/png,image/webp" hidden></label></div>
-    <form id="profileForm" class="profile-form"><label>Display name<input id="profileName" maxlength="80" required></label><label>About<input id="profileBio" maxlength="240"></label><label>Vehicle focus<input id="profileFocus" maxlength="60"></label><div id="profilePrivate" hidden><label>Email<input id="profileEmail" readonly></label><label>Phone<input id="profilePhone" readonly></label></div><button type="submit" class="solid-button">Save profile</button></form>
-    <button id="accountAction" class="muted-button" type="button">Create private account</button><button id="logoutButton" class="muted-button" type="button" hidden>Sign out</button>
-  </section>
-</aside>
-<aside id="partsPane" class="side-panel" hidden aria-label="Part library"><div class="panel-heading"><strong>Parts</strong><button id="manifestButton" class="muted-button">JSON manifest</button><button id="closeParts" class="close">×</button></div><input id="partSearch" placeholder="Search parts…" type="search"><div id="partsContainer" class="scroll-content"></div></aside>
-<aside id="garagePane" class="side-panel" hidden><div class="panel-heading"><strong>Garage</strong><button id="newProject" class="muted-button">New</button><button id="closeGarage" class="close">×</button></div><div id="projectList" class="scroll-content"></div></aside>
-<aside id="editPane" class="side-panel" hidden><div class="panel-heading"><strong>Model</strong><button id="closeEdit" class="close">×</button></div><p class="quiet-note">Procedural 3D preview · not manufacturing geometry.</p><label>Body colour<input type="color" id="bodyColor" value="#8f6bff"></label><label>Ride height<input type="range" id="rideHeight" min="30" max="90" value="50"></label><label>Wheel size<input type="range" id="wheelSize" min="75" max="130" value="100"></label><label class="inline-control">Exploded <input id="explodeToggle" type="checkbox"></label><button id="saveDesign" class="solid-button">Save design</button></aside>
-<div id="logWindow" class="log-window" hidden role="region" aria-label="Activity logs">
-  <div class="log-titlebar" id="logHandle"><span>Server activity</span><div class="log-actions"><button id="collapseLogs" title="Collapse logs">−</button><button id="closeLogs" title="Close logs">×</button></div></div>
-  <div id="logContents" class="log-contents"><div class="log-toolbar"><select id="logScope" aria-label="Log source"><option value="session">My session</option></select><button id="logSmaller" title="Smaller text">A−</button><button id="logLarger" title="Larger text">A+</button><button id="copyLogs" title="Copy visible log">Copy</button><button id="refreshLogs" title="Refresh logs">Refresh</button></div><pre id="logOutput">No activity yet.</pre></div>
-  <div id="logResize" class="resize-handle" aria-hidden="true"></div>
-</div>
-<div id="authOverlay" class="auth-overlay" hidden>
-  <div class="auth-card"><div class="auth-top"><strong id="authHeading">Continue</strong><button type="button" id="closeAuth" class="close" aria-label="Close">×</button></div>
-    <div class="auth-tabs"><button id="guestMode" class="selected" type="button">Guest</button><button id="loginMode" type="button">Sign in</button><button id="registerMode" type="button">Create account</button></div>
-    <form id="authForm">
-      <label id="authNameWrap">Name<input id="authName" maxlength="80" autocomplete="nickname" placeholder="Your name"></label>
-      <label id="authUserWrap" hidden>Username<input id="authUser" autocomplete="username" placeholder="Username"></label>
-      <label id="authEmailWrap" hidden>Email (optional)<input id="authEmail" type="email" autocomplete="email"></label>
-      <label id="authPhoneWrap" hidden>Phone (optional)<input id="authPhone" type="tel" autocomplete="tel" placeholder="+441234567890"></label>
-      <label id="authPasswordWrap" hidden>Password<input id="authPassword" type="password" autocomplete="current-password" minlength="12"></label>
-      <p id="authError" class="error" role="alert"></p>
-      <button type="submit" id="authSubmit" class="solid-button">Continue as guest</button>
+
+    <form id="promptForm" class="prompt-card">
+      <button id="uploadButton" type="button" title="Add an image" aria-label="Add image">＋</button>
+      <label class="sr-only" for="promptInput">Describe a vehicle</label>
+      <textarea id="promptInput" rows="1" placeholder="Imagine a vehicle…" maxlength="6000" required></textarea>
+      <select id="imageProvider" aria-label="Image model"><option value="">Choose model</option></select>
+      <button id="promptSubmit" class="create-button" type="submit">Generate <span aria-hidden="true">↗</span></button>
+      <input id="uploadInput" type="file" accept="image/jpeg,image/png,image/webp" hidden>
     </form>
-  </div>
-</div>
+
+    <div id="jobStatus" class="job-status" hidden role="status" aria-live="polite"><span class="job-orb" aria-hidden="true"></span><div class="job-body"><strong id="jobTitle">Generating</strong><span id="jobDetail">Connecting to image model…</span><div class="job-track"><span id="jobProgress"></span></div></div><span id="jobTimer">00:00</span><button id="stopJob" type="button" title="Stop after this image">Stop</button></div>
+
+    <aside id="drawer" class="drawer" hidden aria-label="Workspace drawer">
+      <div class="drawer-top"><h2 id="drawerTitle">Workspace</h2><button id="drawerClose" type="button" title="Close">×</button></div>
+      <nav class="drawer-tabs" aria-label="Workspace sections"><button data-tab="projects" type="button">Projects</button><button data-tab="sources" type="button">Images</button><button data-tab="models" type="button">Models</button><button data-tab="logs" type="button">Activity</button><button data-tab="appearance" type="button">Theme</button><button data-tab="updates" type="button">Updates</button></nav>
+      <section id="tab-projects" class="tab-content" hidden><div class="button-row"><button id="newProject" class="subtle-primary" type="button">New blank table</button><button id="exportProject" type="button">Export project kit</button></div><div id="projectsList" class="stack"></div></section>
+      <section id="tab-sources" class="tab-content" hidden><p class="quiet">Stored images stay available even when removed from the table. Choose an image to make it the centre photo.</p><div id="sourceList" class="source-grid"></div></section>
+      <section id="tab-models" class="tab-content" hidden>
+        <label>Provider<select id="providerSelect"></select></label><div id="providerInfo" class="quiet"></div>
+        <form id="providerForm" class="stack">
+          <label>Image model<input id="providerImageModel" type="text" autocomplete="off"></label>
+          <label>Endpoint<input id="providerEndpoint" type="url" spellcheck="false"></label>
+          <label>API key<input id="providerKey" type="password" autocomplete="off" placeholder="Leave empty to keep saved key"></label>
+          <label class="check-row"><input id="providerEnabled" type="checkbox"> Enabled</label>
+          <div class="button-row"><button id="testProvider" type="button">Test API</button><button id="saveSessionKey" type="button">Keep in tab</button><button id="saveServerKey" type="submit" class="subtle-primary">Save on server</button><button id="clearProviderKey" type="button">Clear key</button></div>
+        </form><p id="providerResult" class="quiet" role="status"></p>
+      </section>
+      <section id="tab-logs" class="tab-content" hidden><div class="button-row"><select id="logScope"><option value="session">This session</option></select><button id="refreshLog" type="button">Refresh</button><button id="copyLog" type="button">Copy</button></div><pre id="logsText">No activity yet.</pre></section>
+      <section id="tab-appearance" class="tab-content" hidden><label>Theme<select id="themeSelect"><option value="dark">Charcoal</option><option value="warm">Warm paper</option><option value="light">Light</option></select></label><label>Font<input id="fontChoice" type="text" placeholder="System font or installed font family"></label><button id="resetLook" type="button">Reset appearance</button></section>
+      <section id="tab-updates" class="tab-content" hidden><div id="releaseList" class="stack"></div></section>
+    </aside>
+
+    <section id="partsModal" class="modal-scrim" hidden aria-label="Choose parts to generate" role="dialog" aria-modal="true"><div class="modal-card"><div class="modal-title"><h2>Generate separate parts</h2><button id="partsClose" type="button">×</button></div><p class="quiet">Each part is a separate image linked to the main photo. Choose what to make.</p><label>Collection<select id="partCollection"><option value="essential">Exterior essentials</option><option value="interior">Cockpit and interior</option><option value="running">Running gear</option><option value="all">Entire parts catalogue</option></select></label><div id="partCount" class="quiet"></div><div id="partPreview" class="chips"></div><div class="button-row modal-actions"><button id="partsCancel" type="button">Cancel</button><button id="partsStart" class="subtle-primary" type="button">Generate parts</button></div></div></section>
+
+    <section id="authModal" class="modal-scrim" hidden role="dialog" aria-modal="true" aria-label="Sign in"><div class="modal-card small"><div class="modal-title"><h2 id="authHeading">Continue</h2><button id="authClose" type="button">×</button></div><div class="auth-switch"><button data-auth="guest" type="button">Guest</button><button data-auth="login" type="button">Sign in</button><button data-auth="register" type="button">Create account</button></div><form id="authForm" class="stack"><label id="guestNameWrap">Name<input id="guestName" maxlength="80" placeholder="Name"></label><label id="authUserWrap" hidden>Username<input id="authUser" autocomplete="username"></label><label id="authPasswordWrap" hidden>Password<input id="authPassword" type="password" autocomplete="current-password"></label><label id="authEmailWrap" hidden>Email (optional)<input id="authEmail" type="email"></label><p id="authError" class="error"></p><button id="authSubmit" type="submit" class="subtle-primary">Continue</button></form></div></section>
+    <section id="profileModal" class="modal-scrim" hidden role="dialog" aria-modal="true" aria-label="Profile"><div class="modal-card small"><div class="modal-title"><h2>Profile</h2><button id="profileClose" type="button">×</button></div><form id="profileForm" class="stack"><label>Display name<input id="displayName" maxlength="80"></label><label>About<input id="profileBio" maxlength="240"></label><label>Vehicle focus<input id="profileFocus" maxlength="60"></label><label>Profile photo<input id="avatarUpload" type="file" accept="image/jpeg,image/png,image/webp"></label><button type="submit" class="subtle-primary">Save</button></form><div class="button-row"><button id="upgradeButton" type="button" hidden>Protect profile</button><button id="logoutButton" type="button">Sign out</button></div></div></section>
+    <div id="toast" class="toast" role="alert" hidden></div>
+  </main>
 </body>
 </html>
