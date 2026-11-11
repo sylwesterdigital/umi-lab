@@ -19,3 +19,6 @@ Selected gallery images act as visual references for the next workflow action.
 Open a gallery image to display its editor above the Concepts window. Drag and resize the editor, zoom with trackpad or +/- and pan with hand tool/Space. Draw a rectangle, optionally constrain ratio (Free, 1:1, 3:2, 3:4, 4:3, 16:9), press Enter to confirm or click outside to cancel. Crop and Edit AI save new gallery assets. The image outside an AI-edited rectangle is left unchanged.
 
 Drag the prompt by its grip or use Dock to align with Concepts. Click the UMI LAB wordmark to restore your workspace; use Tools > Conversation to reopen chat.
+
+## v0.1.14
+The top-left version opens release history. Click a gallery image to focus it as the source, use G to grab/move an active rectangle in Image Editor, and view local progress while AI actions run.

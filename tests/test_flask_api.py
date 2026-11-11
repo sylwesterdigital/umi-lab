@@ -222,6 +222,29 @@ class FlaskTest(unittest.TestCase):
         with zipfile.ZipFile(io.BytesIO(bundle.data)) as archive:
             self.assertTrue(any(p.startswith('segmentations/') for p in archive.namelist()))
 
+    def test_focused_vehicle_reference_overrides_old_brief(self):
+        from unittest.mock import patch
+        pid=self.post('/api/projects',{'name':'Old red sports car','prompt':'Make a red sports car'}).json['id']
+        image=Image.new('RGB',(100,70),'gray');buf=io.BytesIO();image.save(buf,'PNG');buf.seek(0)
+        response=self.client.post('/api/assets/upload',data={'project_id':pid,'image':(buf,'truck.png')},
+            headers={'X-CSRF-Token':self.csrf},content_type='multipart/form-data')
+        source=response.json['id']
+        self.client.put('/api/providers/xai',json={'enabled':True,'api_key':'test-key','model':'grok-4.7',
+            'image_model':'grok-imagine-image-2.0','base_url':'https://api.x.ai/v1'},headers={'X-CSRF-Token':self.csrf})
+        mocked=io.BytesIO();Image.new('RGB',(80,60),'gray').save(mocked,'PNG')
+        with patch.object(self.module,'generate_image',return_value=(mocked.getvalue(),'image/png')) as gen:
+            done=self.post('/api/concepts/generate',{'project_id':pid,'provider_id':'xai','mode':'annotate',
+                'reference_ids':[source],'source_asset_id':source})
+        self.assertEqual(done.status_code,200,done.json)
+        prompt=gen.call_args.args[3]
+        self.assertIn('same vehicle shown in the supplied reference',prompt)
+        self.assertNotIn('red sports car',prompt)
+        self.assertEqual(done.json['source_asset_id'],source)
+        self.assertEqual(len(gen.call_args.kwargs['reference_images']),1)
+        bad=self.post('/api/concepts/generate',{'project_id':pid,'provider_id':'xai','mode':'annotate',
+            'reference_ids':[source],'source_asset_id':'not-selected'})
+        self.assertEqual(bad.status_code,400,bad.json)
+
     def test_chat_offline_and_login(self):
         pid=self.post('/api/projects',{'name':'Car'}).json['id']
         response=self.post('/api/chat',{'project_id':pid,'message':'A red supercar'})

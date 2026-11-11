@@ -1,3 +1,13 @@
+# UMI LAB — Development Updates
+
+## v0.1.14 — 2026-11-11 02:00 UTC · Reference-first image editing
+- Small version number next to the gradient-text UMI LAB logo.
+- First-open release notes window with scrollable dated history; reopen through version/Tools.
+- Press G to move a selected image rectangle; R returns to rectangle drawing.
+- AI edit and concept generation show local progress, model and elapsed time, with animated borders.
+- Clicking a gallery image focuses it as the generation source; annotation/system/part generation uses that image.
+- The current visual reference overrides unrelated saved project/chat prompts.
+
 # UMI LAB Changelog
 
 ## 0.1.13

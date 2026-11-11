@@ -732,6 +732,9 @@ def concepts():
         if not isinstance(ids,list) or len(ids)>5 or any(not isinstance(v,str) for v in ids):
             return jsonify(error='Choose up to five image references'),400
         if len(set(ids))!=len(ids):return jsonify(error='Duplicate image reference'),400
+        source_id=body.get('source_asset_id')
+        if source_id is not None and (not isinstance(source_id,str) or source_id not in ids):
+            return jsonify(error='Active source must be a selected reference'),400
         references=[]
         for aid in ids:
             asset=conn.execute('SELECT filename,mime FROM assets WHERE id=? AND project_id=?',(aid,pid)).fetchone()
@@ -743,6 +746,9 @@ def concepts():
         system_id=str(body.get('system_id') or '').strip(); part_name=str(body.get('part_name') or '').strip()[:80]
         if mode=='system' and system_id not in SYSTEM_LABELS:return jsonify(error='Choose a valid system'),400
         if mode=='part' and len(part_name)<2:return jsonify(error='Enter a part name'),400
+        # When actual images are supplied, they define vehicle identity; historical
+        # chat/project prompts may describe a different car and must not override them.
+        if references:brief='The exact same vehicle shown in the supplied reference image(s)'
         instruction=concept_instruction(brief,mode,style,len(references),system_id,part_name)
         model=config.get('image_model') or preset.get('image_model') or ''
         started=time.monotonic()
@@ -761,7 +767,7 @@ def concepts():
             settings['last_generation']={'mode':mode,'model':model[:100],'provider':provider_id,
                 'reference_count':len(references),'reference_ids':ids,'images_created':1,
                 'views_in_sheet':6 if mode=='sheet' else 1,'duration_ms':elapsed_ms,'created_at':int(time.time()),
-                'system_id':system_id or None,'part_name':part_name or None}
+                'system_id':system_id or None,'part_name':part_name or None,'source_asset_id':source_id or (ids[0] if ids else None)}
             workflow=settings.setdefault('parts_workflow',{})
             workflow.setdefault('dissection_source_ids', ids)
             workflow['updated_at']=int(time.time())
@@ -784,7 +790,7 @@ def concepts():
     result_view={'sheet':'six_view_sheet','annotate':'annotated_parts_map','system':'system_sheet','part':'isolated_part'}.get(mode,mode)
     return jsonify(assets=[{'id':aid,'url':'/api/media/'+aid,'view': result_view}],
                    warnings=[],views_requested=6 if mode=='sheet' else 1,views_completed=6 if mode=='sheet' else 1,
-                   images_created=1,mode=mode,reference_count=len(references),model=model,elapsed_ms=elapsed_ms,system_id=system_id or None,part_name=part_name or None)
+                   images_created=1,mode=mode,reference_count=len(references),model=model,elapsed_ms=elapsed_ms,system_id=system_id or None,part_name=part_name or None,source_asset_id=source_id or (ids[0] if ids else None))
 
 
 @app.post('/api/segments/generate')
