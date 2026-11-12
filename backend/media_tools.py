@@ -14,10 +14,10 @@ from xml.etree import ElementTree as ET
 MEDIA_TYPES = {
     '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
     '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml',
-    '.pdf': 'application/pdf', '.mp4': 'video/mp4', '.webm': 'video/webm',
+    '.pdf': 'application/pdf', '.txt': 'text/plain', '.md': 'text/markdown', '.markdown': 'text/markdown', '.mp4': 'video/mp4', '.webm': 'video/webm',
     '.mov': 'video/quicktime', '.m4v': 'video/x-m4v',
     '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg',
-    '.m4a': 'audio/mp4', '.flac': 'audio/flac',
+    '.m4a': 'audio/mp4', '.flac': 'audio/flac', '.weba': 'audio/webm',
 }
 MAX_UPLOAD = 22 * 1024 * 1024
 
@@ -28,10 +28,13 @@ def media_type(name, supplied=''):
     """Validate extension against a narrow MIME allowlist, including OS-specific aliases."""
     mime = MEDIA_TYPES.get(Path(name or '').suffix.lower())
     aliases = {
+        'text/plain': {'application/octet-stream'},
+        'text/markdown': {'text/plain', 'text/x-markdown'},
         'audio/wav': {'audio/x-wav', 'audio/wave', 'audio/vnd.wave', 'audio/x-pn-wav'},
         'audio/mp4': {'audio/x-m4a', 'audio/m4a'},
         'audio/mpeg': {'audio/mp3', 'audio/x-mp3'},
         'audio/ogg': {'application/ogg'},
+        'audio/webm': {'video/webm'},
         'video/quicktime': {'video/x-quicktime'},
         'video/x-m4v': {'video/mp4'},
     }

@@ -1,51 +1,14 @@
-# UMI LAB changelog
+# UMI LAB Changes
 
-## 0.2.9
-- Standard click selection, Shift-click multi-select, blank-canvas deselection, and dragging selected groups.
-- Editable document cards on the endless canvas: ink and paper colours, five font families, text size and scrollable content. Positions and edits are saved with SQLite-backed canvas history.
-- Media import: SVG and animated GIF, PDF preview with TXT extraction, audio and video conversion via FFmpeg, and full-size media viewer.
-- Server-side media validation, project ownership checks, upload limits, original-file export and PDF text export.
-
-
-## 0.2.8
-- Fixed CSP connect-src to include blob: for 3D GLB embedded textures (retaining same-origin and jsDelivr policy).
-- Visible refinement progress on the exact source photo, with elapsed time and preserved original.
-- Automatically centre and select completed image variations; retain prompts and report errors clearly.
-
-## 0.2.7
-- Prefer direct viewer-ready AHOLO GLB, including for URLs with signed/no-extension paths.
-- Recover previews for already successful ZIP-only tasks without repeating generation; keep archive downloads.
-- Advertise preview links only for viewable GLB artifacts, show recovery and reliable status on canvas.
-- Allow narrowly scoped model-viewer source-map requests to jsDelivr without opening general external connections.
-
-## 0.2.6
-- Packs are freeform canvas objects, with persistent world coordinates.
-- Corrected per-photo three-dot alignment.
-- Full image analysis and generation metadata are saved as per-image SQLite documents and exported.
-- Generated 3D tasks appear as linked canvas cards, with a preview and scene option when a GLB is ready.
-- AHOLO 3D status remains clearly queued until the file is actually downloaded.
-- Image-view prompts are more explicit about distinct views.
-
-# UMI LAB changelog
-
-## v0.2.4 — Universal scene intelligence and recoverable canvas
-- Removed the visible hardcoded subject picker; optional image analysis creates a free-form inventory of visible items, materials and likely components via an already configured vision model.
-- Added rectangular multi-select, Shift-click selection and group dragging.
-- Added Move to pack, Copy with image metadata, Remove from graph (preserving source images), and Delete pack listing.
-- Added persistent SQLite canvas revisions and Undo/Redo shortcuts.
-- Scoped pending queues to the relevant main image and moved queue status away from bottom controls.
-- Refusals or failed analysis do not block unrelated projects or source photos.
-- No unverified age identification, product-brand verification or price estimates are presented as facts.
-
-## 0.2.3 — Universal workspace
-- Place new uploads in empty photo space without resetting previous images.
-- Show/hide packs using eye buttons on envelope covers and Packs drawer.
-- Arrange visible photos using Grid, Orbit, Fountain or Fit.
-- Generate views and parts for people, rooms, products, machines, and general objects.
-- Add editable custom candidate objects and preserve per-image scene category in saved layout.
-- Preserve server images, per-project layout, parts workflow and 3D gateway.
-
-# UMI LAB Changelog
+## 0.2.11 — Universal media and sharing foundation (2026-11-12)
+- Accept UTF-8 Markdown and TXT as editable canvas documents, preserving source downloads.
+- Add video/audio non-destructive processing (trim, speed, compress, scale, GIF, mute, audio mix/replace) and image conversion; original AV files retained.
+- Serve authenticated four-second HLS media segments with MP4/MP3 fallback.
+- Add webcam and microphone recording panels with live monitoring and on-canvas saved results.
+- Add typed action menus for documents, media and images; optional OpenAI audio transcription.
+- Add opt-in per-item sharing via public, PIN or approval-required `/share/<token>` links, with owner request controls and revocation.
+- Add Shift+A canvas add menu; nested folders, pack color, collect/expose, ZIP export and bounded batch conversion.
+- Add 3D share/selection support and optional server-enabled Blender mesh decimation.
 
 ## 0.2.10
 - Fix Ubuntu WAV media upload type validation for audio/x-wav and standard aliases.

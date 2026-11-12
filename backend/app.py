@@ -25,6 +25,7 @@ from .meta_sam import segment_image
 from .mesh_preview import preview_blob, preview_is_ready
 from .scene_analysis import analyze as analyze_visual_scene, visual_question
 from .media_tools import MEDIA_TYPES, MAX_UPLOAD, MediaError, media_type, clean_svg, validate_gif, pdf_text, pdf_thumbnail, transcode
+from .media_pipeline import hls_from_file, transform_media
 
 ROOT=Path(__file__).resolve().parent.parent
 # Release metadata is the single source of truth for every API/version export.
@@ -102,7 +103,7 @@ def security(resp):
     resp.headers['X-Content-Type-Options']='nosniff'
     resp.headers['Referrer-Policy']='same-origin'
     resp.headers['Cache-Control']='no-store' if request.path.startswith('/api/') else 'no-cache'
-    if request.endpoint=='media' and resp.mimetype=='application/pdf':
+    if request.endpoint in ('media','studio_shares.shared_file') and resp.mimetype=='application/pdf':
         resp.headers['X-Frame-Options']='SAMEORIGIN'
         resp.headers['Content-Security-Policy']="default-src 'none'; frame-ancestors 'self'; sandbox allow-same-origin"
     elif request.endpoint=='media' and resp.mimetype=='image/svg+xml':
@@ -457,7 +458,10 @@ def project_detail(pid):
         asset['url']='/api/media/'+asset['id']
         if asset['mime']=='application/pdf' and (MEDIA/(asset['id']+'.preview.png')).is_file():
             asset['thumb_url']='/api/media/'+asset['id']+'/thumbnail'
-        if asset['mime']=='application/pdf':asset['text_url']='/api/media/'+asset['id']+'/text'
+        if asset['mime'] in ('application/pdf','text/plain','text/markdown'):asset['text_url']='/api/media/'+asset['id']+'/text'
+        if asset['mime'].startswith(('audio/','video/')):
+            if (MEDIA/'hls'/asset['id']/'index.m3u8').is_file():asset['hls_url']='/api/media/'+asset['id']+'/hls/index.m3u8'
+            if list(MEDIA.glob(asset['id']+'.original.*')):asset['original_url']='/api/media/'+asset['id']+'/original'
     return jsonify(project=store.serialize_project(row),assets=assets,messages=messages)
 
 @app.post('/api/projects/<pid>/analyze')
@@ -690,14 +694,21 @@ def upload():
             view='reference';actual_mime=mime;thumb=None
         else:
             try:
-                extracted='';thumb=None
+                extracted='';thumb=None;original_blob=None;original_ext=None
                 if mime=='image/gif':
                     blob=validate_gif(blob);ext='gif';view='animation'
                 elif mime=='image/svg+xml':
                     blob=clean_svg(blob);ext='svg';view='vector'
                 elif mime=='application/pdf':
                     extracted=pdf_text(blob);thumb=pdf_thumbnail(blob);ext='pdf';view='document'
+                elif mime in ('text/plain','text/markdown'):
+                    try:extracted=blob.decode('utf-8-sig',errors='strict')
+                    except UnicodeDecodeError:raise MediaError('Text file must use UTF-8 encoding')
+                    if '\x00' in extracted:raise MediaError('Text contains binary content')
+                    extracted=extracted[:200_000]
+                    blob=extracted.encode('utf-8');ext='md' if mime=='text/markdown' else 'txt';view='document'
                 elif mime.startswith(('video/','audio/')):
+                    original_blob=blob;original_ext=Path(file.filename).suffix.lower()
                     mime,ext,blob=transcode(blob,mime);view='video' if mime.startswith('video/') else 'audio'
                 else:raise MediaError('Unsupported media')
             except MediaError as exc:return jsonify(error=str(exc)),400
@@ -705,6 +716,10 @@ def upload():
             location=MEDIA/(aid+'.'+ext)
             with location.open('xb') as output:output.write(blob)
             os.chmod(location,0o600)
+            if original_blob and original_ext in ('.mp3','.wav','.weba','.ogg','.m4a','.flac','.mp4','.mov','.m4v','.webm'):
+                original=MEDIA/(aid+'.original'+original_ext)
+                with original.open('xb') as out:out.write(original_blob)
+                os.chmod(original,0o600)
             if thumb:
                 cover=MEDIA/(aid+'.preview.png')
                 with cover.open('xb') as out:out.write(thumb)
@@ -716,11 +731,16 @@ def upload():
             conn.execute('INSERT INTO assets VALUES(?,?,?,?,?,?,?)',
                          (aid,pid,location.name,mime,view,'upload',int(time.time())))
             conn.commit()
-            if mime=='application/pdf' and extracted:
-                save_asset_document(conn,pid,aid,'pdf_text','local','pypdf','Extracted selectable text',extracted)
+            if extracted and mime in ('application/pdf','text/plain','text/markdown'):
+                save_asset_document(conn,pid,aid,'pdf_text' if mime=='application/pdf' else 'document_text','local','pypdf' if mime=='application/pdf' else 'utf-8','Imported document',extracted)
+            if actual_mime.startswith(('audio/','video/')):
+                hls_from_file(location,MEDIA/'hls'/aid,actual_mime)
         result={'id':aid,'url':'/api/media/'+aid,'view':view,'mime':actual_mime}
         if thumb:result['thumb_url']='/api/media/'+aid+'/thumbnail'
-        if actual_mime=='application/pdf':result['text_url']='/api/media/'+aid+'/text'
+        if actual_mime in ('application/pdf','text/plain','text/markdown'):result['text_url']='/api/media/'+aid+'/text'
+        if actual_mime.startswith(('audio/','video/')):
+            if (MEDIA/'hls'/aid/'index.m3u8').is_file():result['hls_url']='/api/media/'+aid+'/hls/index.m3u8'
+            if original_blob:result['original_url']='/api/media/'+aid+'/original'
     return jsonify(result),201
 
 @app.post('/api/assets/region')
@@ -823,10 +843,127 @@ def media_text(asset_id):
     with store.connect(DATA) as conn:
         row=conn.execute('SELECT a.mime FROM assets a JOIN projects p ON p.id=a.project_id WHERE a.id=? AND p.user_id=?',
                          (asset_id,session['uid'])).fetchone()
-    if not row or row['mime']!='application/pdf':abort(404)
-    file=MEDIA/(asset_id+'.txt')
+    if not row or row['mime'] not in ('application/pdf','text/plain','text/markdown'):abort(404)
+    file=MEDIA/(asset_id+'.txt') if row['mime']=='application/pdf' else None
+    if file is None:
+        with store.connect(DATA) as conn:source=conn.execute('SELECT filename FROM assets WHERE id=?',(asset_id,)).fetchone()
+        file=MEDIA/source['filename'] if source else MEDIA/'none'
     if not file.is_file():abort(404)
     return send_file(file,mimetype='text/plain; charset=utf-8',as_attachment=True,download_name='document-'+asset_id[:8]+'.txt')
+
+@app.get('/api/media/<asset_id>/original')
+@authenticated
+def media_original(asset_id):
+    with store.connect(DATA) as conn:
+        asset=conn.execute('''SELECT 1 FROM assets a JOIN projects p ON p.id=a.project_id
+         WHERE a.id=? AND p.user_id=?''',(asset_id,session['uid'])).fetchone()
+    if not asset:abort(404)
+    candidates=list(MEDIA.glob(asset_id+'.original.*'))
+    if len(candidates)!=1:abort(404)
+    return send_file(candidates[0],as_attachment=True,download_name='original'+candidates[0].suffix)
+
+@app.get('/api/media/<asset_id>/hls/<filename>')
+@authenticated
+def media_hls(asset_id,filename):
+    if not re.fullmatch(r'(?:index\.m3u8|seg_\d{4}\.ts)',filename):abort(404)
+    with store.connect(DATA) as conn:
+        owned=conn.execute('''SELECT 1 FROM assets a JOIN projects p ON p.id=a.project_id
+           WHERE a.id=? AND p.user_id=? AND (a.mime LIKE 'audio/%' OR a.mime LIKE 'video/%')''',(asset_id,session['uid'])).fetchone()
+    if not owned:abort(404)
+    folder=MEDIA/'hls'/asset_id
+    file=folder/filename
+    if not file.is_file():abort(404)
+    return send_file(file,mimetype='application/vnd.apple.mpegurl' if filename.endswith('.m3u8') else 'video/mp2t',conditional=True)
+
+@app.post('/api/projects/<pid>/media/process')
+@authenticated
+def process_project_media(pid):
+    body=request.get_json(silent=True) or {}
+    aid=str(body.get('asset_id',''));operation=str(body.get('operation',''))
+    with store.connect(DATA) as conn:
+        if not store.project_for(conn,session['uid'],pid):abort(404)
+        asset=conn.execute('SELECT filename,mime FROM assets WHERE id=? AND project_id=?',(aid,pid)).fetchone()
+        if not asset:abort(404)
+        source=MEDIA/asset['filename']
+        if not source.is_file():abort(404)
+        try:
+            if operation in ('audio-replace','audio-mix'):
+                replacement=str(body.get('audio_asset_id',''))
+                owned_audio=conn.execute('SELECT filename,mime FROM assets WHERE id=? AND project_id=?',(replacement,pid)).fetchone()
+                if not owned_audio or not owned_audio['mime'].startswith('audio/'):raise MediaError('Choose an audio file from this project')
+                body['_audio_bytes']=(MEDIA/owned_audio['filename']).read_bytes()
+            raw,target,extension,label=transform_media(source.read_bytes(),asset['mime'],operation,body)
+        except MediaError as exc:return jsonify(error=str(exc)),400
+        new_id=store.new_id();name=new_id+'.'+extension
+        with (MEDIA/name).open('xb') as out:out.write(raw)
+        os.chmod(MEDIA/name,0o600)
+        kind='animation' if target=='image/gif' else ('video' if target.startswith('video/') else 'audio' if target.startswith('audio/') else 'reference')
+        conn.execute('INSERT INTO assets VALUES(?,?,?,?,?,?,?)',(new_id,pid,name,target,kind,'media:'+aid+':'+operation,int(time.time())))
+        conn.commit()
+        if target.startswith(('audio/','video/')):hls_from_file(MEDIA/name,MEDIA/'hls'/new_id,target)
+    return jsonify(id=new_id,url='/api/media/'+new_id,mime=target,view=kind,source_id=aid,operation=label,
+                   hls_url='/api/media/'+new_id+'/hls/index.m3u8' if (MEDIA/'hls'/new_id/'index.m3u8').is_file() else None),201
+
+@app.post('/api/projects/<pid>/packs/archive')
+@authenticated
+def export_pack_media(pid):
+    body=request.get_json(silent=True) or {}
+    identifiers=body.get('asset_ids',[]);mesh_ids=body.get('mesh_task_ids',[]);notes=body.get('notes',[])
+    if not isinstance(identifiers,list) or not isinstance(mesh_ids,list) or not isinstance(notes,list) or not 1<=len(identifiers)+len(mesh_ids)+len(notes)<=150:return jsonify(error='Select 1 to 150 files'),400
+    with store.connect(DATA) as conn:
+        if not store.project_for(conn,session['uid'],pid):abort(404)
+        placeholders=','.join('?' for x in identifiers) if identifiers else "''"
+        assets=conn.execute('SELECT id,filename,mime,view FROM assets WHERE project_id=? AND id IN ('+placeholders+')',(pid,*identifiers)).fetchall()
+        mesh_placeholders=','.join('?' for x in mesh_ids) if mesh_ids else "''"
+        models=conn.execute('SELECT id,model_file,label FROM mesh_tasks WHERE project_id=? AND user_id=? AND id IN ('+mesh_placeholders+')',(pid,session['uid'],*mesh_ids)).fetchall()
+        if len(assets)!=len(set(identifiers)) or len(models)!=len(set(mesh_ids)):return jsonify(error='Invalid pack content'),400
+        attachments=io.BytesIO()
+        with zipfile.ZipFile(attachments,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=5) as z:
+            index=[]
+            for row in assets:
+                path=MEDIA/row['filename']
+                if not path.is_file():continue
+                z.write(path,'media/'+row['filename'])
+                index.append({'id':row['id'],'file':row['filename'],'mime':row['mime'],'view':row['view']})
+            for model in models:
+                if model['model_file']:
+                    model_file=MESHES/model['model_file']
+                    if model_file.is_file():z.write(model_file,'models/'+model_file.name)
+            for index_note,note in enumerate(notes):
+                if not isinstance(note,dict):continue
+                title=re.sub(r'[^a-zA-Z0-9._-]+','_',str(note.get('title','Document')))[:65] or 'Document'
+                content=str(note.get('content',''))[:100000]
+                z.writestr('documents/'+str(index_note+1)+'-'+title+'.txt',content)
+            z.writestr('pack.json',json.dumps(index,indent=2))
+    attachments.seek(0)
+    return send_file(attachments,mimetype='application/zip',as_attachment=True,download_name='umi-pack.zip')
+
+@app.post('/api/projects/<pid>/media/transcribe')
+@authenticated
+def transcribe_owned_audio(pid):
+    body=request.get_json(silent=True) or {};aid=str(body.get('asset_id',''))
+    provider_id=str(body.get('provider_id') or 'openai')
+    with store.connect(DATA) as conn:
+        if not store.project_for(conn,session['uid'],pid):abort(404)
+        asset=conn.execute('SELECT filename,mime FROM assets WHERE project_id=? AND id=?',(pid,aid)).fetchone()
+        if not asset:abort(404)
+        if not asset['mime'].startswith('audio/'):return jsonify(error='Select audio for transcription'),400
+        if provider_id!='openai':return jsonify(error='Connect an OpenAI transcription provider'),400
+        try:provider,config,key=get_provider(conn,provider_id)
+        except ProviderError:return jsonify(error='Enable OpenAI and configure its API key'),400
+        if not key:return jsonify(error='Configure an OpenAI API key first'),400
+        audio_file=MEDIA/asset['filename']
+        if not audio_file.is_file():abort(404)
+        try:
+            import requests
+            with audio_file.open('rb') as fp:
+                resp=requests.post('https://api.openai.com/v1/audio/transcriptions',headers={'Authorization':'Bearer '+key},files={'file':(audio_file.name,fp,asset['mime'])},data={'model':'gpt-4o-mini-transcribe'},timeout=90)
+        except Exception:return jsonify(error='Transcription service unavailable'),502
+        if not resp.ok:return jsonify(error='Transcription provider returned HTTP '+str(resp.status_code)),502
+        try:text=resp.json().get('text','')[:120000]
+        except ValueError:return jsonify(error='Unexpected transcript response'),502
+        save_asset_document(conn,pid,aid,'transcript','openai','gpt-4o-mini-transcribe','Transcribe audio',text)
+    return jsonify(text=text,asset_id=aid)
 
 @app.get('/api/media/<asset_id>')
 @authenticated
@@ -1251,6 +1388,30 @@ def download_mesh_task(task_id):
     mime='application/zip' if ext=='.zip' else 'model/gltf-binary'
     return send_file(path,mimetype=mime,as_attachment=True,download_name=label+ext)
 
+@app.post('/api/projects/<pid>/mesh/optimise')
+@authenticated
+def optimise_mesh(pid):
+    from .mesh_optimize import optimized_glb,BlenderError
+    body=request.get_json(silent=True) or {}
+    task_id=str(body.get('task_id',''))
+    with store.connect(DATA) as conn:
+        if not store.project_for(conn,session['uid'],pid):abort(404)
+        task=conn.execute('SELECT * FROM mesh_tasks WHERE id=? AND user_id=? AND project_id=?',(task_id,session['uid'],pid)).fetchone()
+        if not task or task['status']!='SUCCEEDED':return jsonify(error='Choose a completed 3D model'),400
+        candidate=mesh_preview_path(task_id)
+        if not candidate.is_file():candidate=MESHES/task['model_file']
+        try:payload=optimized_glb(candidate,body.get('geometry_ratio',.65),body.get('texture_scale',.5))
+        except BlenderError as exc:return jsonify(error=str(exc)),400
+        new_id=store.new_id();dest=MESHES/(new_id+'.glb');preview=mesh_preview_path(new_id)
+        with dest.open('xb') as fp:fp.write(payload)
+        os.chmod(dest,0o600)
+        with preview.open('xb') as fp:fp.write(payload)
+        os.chmod(preview,0o600)
+        now=int(time.time())
+        conn.execute('INSERT INTO mesh_tasks VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',(new_id,pid,task['asset_id'],session['uid'],'local-blender',new_id,'Optimised · '+task['label'],'SUCCEEDED',dest.name,'',0,now,now))
+        conn.commit()
+    return jsonify(id=new_id,status='SUCCEEDED',preview_url='/api/mesh-tasks/'+new_id+'/preview',download_url='/api/mesh-tasks/'+new_id+'/download'),201
+
 @app.get('/api/projects/<pid>/export')
 @authenticated
 def export(pid):
@@ -1287,6 +1448,9 @@ def export(pid):
         for a in assets:
             filename=a['filename']
             if (MEDIA/filename).is_file():z.write(MEDIA/filename,'references/'+filename)
+            if a['mime'].startswith(('audio/','video/')):
+                for original in MEDIA.glob(Path(filename).stem+'.original.*'):
+                    if original.is_file():z.write(original,'originals/'+original.name)
             if a['mime']=='application/pdf':
                 token=Path(filename).stem
                 if (MEDIA/(token+'.txt')).is_file():z.write(MEDIA/(token+'.txt'),'documents/'+token+'.txt')
@@ -1296,3 +1460,7 @@ def export(pid):
 
 if __name__=='__main__':
     app.run(host='127.0.0.1',port=int(os.environ.get('UMI_PORT','5057')),debug=False)
+
+# Share links are opt-in and remain distinct from authenticated media routes.
+from .studio_share import setup_sharing
+setup_sharing(app,DATA,MEDIA,MESHES)

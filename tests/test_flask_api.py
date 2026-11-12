@@ -80,6 +80,40 @@ class FlaskTest(unittest.TestCase):
         self.assertEqual(redone.status_code,200,redone.json)
         self.assertTrue(redone.json['snapshot']['nodes'][0]['archived'])
 
+    def test_markdown_text_processing_and_share_permissions(self):
+        pid=self.post('/api/projects',{'name':'Media studio'}).json['id']
+        created=self.client.post('/api/assets/upload',data={'project_id':pid,'file':(io.BytesIO(b'# My creative notes\nA paragraph'),'instructions.md')},
+              content_type='multipart/form-data',headers={'X-CSRF-Token':self.csrf})
+        self.assertEqual(created.status_code,201,created.json)
+        aid=created.json['id']
+        self.assertEqual(created.json['mime'],'text/markdown')
+        self.assertIn('A paragraph',self.client.get(f'/api/media/{aid}/text').data.decode())
+        public=self.post(f'/api/projects/{pid}/shares',{'kind':'asset','object_id':aid,'permission':'public'})
+        self.assertEqual(public.status_code,201,public.json)
+        token=public.json['token']
+        self.assertEqual(self.client.get('/share/'+token).status_code,200)
+        self.assertEqual(self.client.get('/share/'+token+'/file').status_code,200)
+        pin=self.post(f'/api/projects/{pid}/shares',{'kind':'asset','object_id':aid,'permission':'pin','pin':'14793'})
+        self.assertEqual(pin.status_code,201,pin.json)
+        pin_token=pin.json['token']
+        self.assertEqual(self.client.get('/share/'+pin_token+'/file').status_code,403)
+        self.assertEqual(self.client.post('/share/'+pin_token+'/unlock',data={'pin':'14793'}).status_code,303)
+        self.assertEqual(self.client.get('/share/'+pin_token+'/file').status_code,200)
+        revoke=self.post(f'/api/projects/{pid}/shares/{token}/revoke',{})
+        self.assertEqual(revoke.status_code,200,revoke.json)
+        self.assertEqual(self.client.get('/share/'+token).status_code,404)
+        img=io.BytesIO();Image.new('RGB',(64,60),'orange').save(img,'PNG');img.seek(0)
+        picture=self.client.post('/api/assets/upload',data={'project_id':pid,'image':(img,'photo.png')},headers={'X-CSRF-Token':self.csrf},content_type='multipart/form-data')
+        self.assertEqual(picture.status_code,201,picture.json)
+        converted=self.post(f'/api/projects/{pid}/media/process',{'asset_id':picture.json['id'],'operation':'webp','quality':70})
+        self.assertEqual(converted.status_code,201,converted.json)
+        self.assertEqual(self.client.get(converted.json['url']).mimetype,'image/webp')
+        archive=self.post(f'/api/projects/{pid}/packs/archive',{'asset_ids':[aid,picture.json['id']],'notes':[{'title':'Note','content':'Hello'}]})
+        self.assertEqual(archive.status_code,200)
+        import zipfile
+        with zipfile.ZipFile(io.BytesIO(archive.data)) as z:
+            self.assertTrue(any(x.endswith('Note.txt') for x in z.namelist()))
+
     def test_crud_manifest_and_zip(self):
         res=self.post('/api/projects',{'name':'Red Beast','prompt':'Red off-road car'})
         self.assertEqual(res.status_code,201,res.json)
