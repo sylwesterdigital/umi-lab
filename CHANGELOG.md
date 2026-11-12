@@ -1,3 +1,10 @@
+## 0.2.20 — Working WebP & Draco encoder recovery
+- Native WebP colour-texture encoding using Pillow and Khronos EXT_texture_webp, without glTF Transform; original geometry and noncolour textures unchanged.
+- Blender Draco remains preferred, with verified glTF Transform fallback when the Ubuntu Blender build lacks a native Draco library.
+- Optional Node 22 runtime installed only under /opt/umi-lab/tools if the system runtime is missing or too old; system-wide Node untouched.
+- Clear status: native Draco, fallback Draco, WebP encoder, and optional KTX2/Meshopt. No pretend active codecs.
+- All outputs remain separate from originals and model asset ownership checks remain in place.
+
 ## 0.2.19 — Native Draco compression
 - Fixed Draco being disabled when glTF Transform is absent.
 - Blender native glTF exporter now supports compression level 0–6, and five quantization controls; verifies capability by exporting an actual Draco GLB.

@@ -153,6 +153,7 @@ Environment=UMI_DATA_DIR={DATA}
 Environment=UMI_HTTPS=1
 Environment=PYTHONUNBUFFERED=1
 Environment=UMI_ENABLE_BLENDER=1
+Environment=PATH=/opt/umi-lab/tools/node-current/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart={BASE}/current/.venv/bin/gunicorn --workers 1 --threads 4 --timeout 220 --bind 127.0.0.1:{port} backend.wsgi:app
 Restart=on-failure
 RestartSec=2
@@ -201,38 +202,98 @@ def prepare_blender():
     return binary
 
 
-def prepare_gltf_transform():
-    """Install optional advanced GLB codecs into UMI-only tools directory.
+def ensure_scoped_node():
+    """Install Node 22 for *UMI only* when system Node is absent or too old.
 
-    Unavailable npm / unsupported Node must not break Blender-only releases.
-    Never changes system npm global packages or unrelated applications.
+    Nothing is added to /usr/bin or other apps' services. Official release
+    archives are checked against nodejs.org's HTTPS SHA256 listing.
+    """
+    node=shutil.which('node');npm=shutil.which('npm')
+    if node and npm:
+        try:
+            result=run([node,'--version'],timeout=8,check=False)
+            match=re.match(r'v(\d+)',result.stdout.strip())
+            if match and int(match.group(1))>=20:return node,npm
+        except (OSError,subprocess.TimeoutExpired):pass
+    local=BASE/'tools'/'node-current'
+    binary=local/'bin'/'node';npm_local=local/'bin'/'npm'
+    if binary.is_file() and npm_local.exists():return str(binary),str(npm_local)
+    import platform,hashlib,tarfile,urllib.request
+    version='v22.16.0';machine=platform.machine().lower()
+    arch={'x86_64':'x64','amd64':'x64','aarch64':'arm64','arm64':'arm64'}.get(machine)
+    if not arch:raise InstallError('Unsupported CPU architecture for optional scoped Node')
+    name=f'node-{version}-linux-{arch}.tar.xz'
+    url=f'https://nodejs.org/dist/{version}/'
+    def download(uri,limit):
+        with urllib.request.urlopen(uri,timeout=20) as resp:
+            data=resp.read(limit+1)
+        if len(data)>limit:raise InstallError('Optional Node download exceeded size limit')
+        return data
+    sums=download(url+'SHASUMS256.txt',120_000).decode('ascii')
+    digest=None
+    for row in sums.splitlines():
+        columns=row.strip().split()
+        if len(columns)==2 and columns[1]==name:digest=columns[0];break
+    if not digest or not re.fullmatch(r'[a-f0-9]{64}',digest):
+        raise InstallError('Node release checksum is missing')
+    blob=download(url+name,55*1024*1024)
+    if hashlib.sha256(blob).hexdigest()!=digest:
+        raise InstallError('Node archive SHA256 mismatch')
+    import io
+    parent=BASE/'tools';parent.mkdir(parents=True,exist_ok=True)
+    version_dir=parent/('node-'+version+'-'+arch)
+    if not version_dir.exists():
+        with tempfile.TemporaryDirectory(prefix='umi-node-',dir=parent) as staging:
+            with tarfile.open(fileobj=io.BytesIO(blob),mode='r:xz') as archive:
+                members=archive.getmembers()
+                root=f'node-{version}-linux-{arch}/'
+                if any(not m.name.startswith(root) or '/..' in m.name or m.name.startswith('/')
+                       for m in members):raise InstallError('Node archive contains unsafe paths')
+                # Ubuntu 24.04 Python 3.12+ supports the hardened data filter.
+                archive.extractall(path=staging,filter='data')
+            extracted=Path(staging)/root.rstrip('/')
+            if not (extracted/'bin/node').is_file() or not (extracted/'bin/npm').exists():
+                raise InstallError('Downloaded Node distribution is incomplete')
+            shutil.move(str(extracted),str(version_dir))
+    # A symlink switch changes only the UMI-owned scoped runtime.
+    pending=parent/'node-current.new'
+    if pending.exists() or pending.is_symlink():pending.unlink()
+    pending.symlink_to(version_dir.name)
+    os.replace(pending,local)
+    print('GLTF: UMI-only Node runtime installed: '+version,flush=True)
+    return str(binary),str(npm_local)
+
+
+def prepare_gltf_transform():
+    """Install the Draco/Meshopt/KTX2 fallback into an app-local directory.
+
+    Native Blender and Pillow WebP do not depend on this optional tool.
     """
     destination=BASE/'tools'/'gltf-transform'
     existing=destination/'node_modules'/'.bin'/'gltf-transform'
-    if existing.is_file() or shutil.which('gltf-transform'):
-        print('GLTF: optional texture/mesh codecs available',flush=True)
-        return True
-    node=shutil.which('node');npm=shutil.which('npm')
-    if not node or not npm:
-        print('GLTF: optional codec tools unavailable (Node/npm absent); Blender presets remain enabled',flush=True)
-        return False
     try:
-        version=run([node,'--version'],timeout=10,check=False)
-        import re as _re
-        match=_re.match(r'v(\d+)',version.stdout.strip())
-        if not match or int(match.group(1))<20:
-            print('GLTF: Node 20+ needed for optional codecs; Blender presets remain enabled',flush=True)
-            return False
+        node,npm=ensure_scoped_node()
+        env={**os.environ,'PATH':str(BASE/'tools'/'node-current'/'bin')+os.pathsep+os.environ.get('PATH','/usr/bin:/bin')}
+        if existing.is_file():
+            check=run([existing,'--version'],timeout=12,check=False,env=env)
+            if check.returncode==0:
+                print('GLTF: installed Draco/Meshopt/KTX2 fallback verified',flush=True)
+                return True
         destination.mkdir(parents=True,exist_ok=True)
         result=run([npm,'--prefix',str(destination),'install','--no-save','--no-audit','--no-fund',
-                    '@gltf-transform/cli@4.5.0'],timeout=140,check=False)
+                    '@gltf-transform/cli@4.5.0'],timeout=185,check=False,env=env)
         if result.returncode or not existing.is_file():
-            print('GLTF: optional codec installation skipped; Blender presets remain enabled',flush=True)
+            print('GLTF: optional compression install unavailable; Blender/Pillow remain usable: '+
+                  (result.stderr or result.stdout)[-180:],flush=True)
             return False
-        print('GLTF: optional compression codecs ready',flush=True)
+        check=run([existing,'--version'],timeout=12,check=False,env=env)
+        if check.returncode:
+            print('GLTF: installed CLI failed its runtime verification',flush=True)
+            return False
+        print('GLTF: Draco/Meshopt/KTX2 fallback ready',flush=True)
         return True
-    except (OSError,subprocess.TimeoutExpired):
-        print('GLTF: optional CLI install unavailable; Blender presets remain enabled',flush=True)
+    except (OSError,subprocess.TimeoutExpired,InstallError,ValueError) as error:
+        print('GLTF: optional codecs unavailable; native Blender and WebP still work: '+str(error)[:150],flush=True)
         return False
 
 def _blender_sample_glb():

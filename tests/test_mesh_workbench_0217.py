@@ -30,7 +30,7 @@ class MeshWorkbenchTests(unittest.TestCase):
     def test_codec_unavailable_fails_before_blender_process(self):
         with patch.object(mesh_optimize,'gltf_cli',return_value=None),patch.object(mesh_optimize.subprocess,'run') as run:
             with self.assertRaises(mesh_optimize.BlenderError) as caught:
-                mesh_optimize.optimized_glb('example.glb',options={'preset':'custom','texture_format':'webp'})
+                mesh_optimize.optimized_glb('example.glb',options={'preset':'custom','texture_format':'ktx2-uastc'})
             self.assertEqual(caught.exception.code,'ADVANCED_CODEC_UNAVAILABLE')
             run.assert_not_called()
 

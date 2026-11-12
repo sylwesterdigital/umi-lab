@@ -1,8 +1,9 @@
 """Safe, loss-aware GLB texture pack export and non-destructive replacement.
 
 Operates on embedded PNG/JPEG images. Accessor, rig, animation and mesh data
-remain byte-identical. Extended WebP/KTX2 encoding is handled by the optional
-glTF Transform CLI after this stage, not by hand-editing unsupported extensions.
+remain byte-identical. WebP colour textures are encoded with Pillow and
+referenced through the ratified EXT_texture_webp extension; material slots
+for normals and ORM retain their existing textures. KTX2 uses optional tools.
 """
 from __future__ import annotations
 import base64
@@ -13,7 +14,7 @@ import json
 import re
 import struct
 import zipfile
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, UnidentifiedImageError, features
 
 MAX_GLB=100*1024*1024
 MAX_PACK=56*1024*1024
@@ -134,7 +135,13 @@ def _image_bytes(blob,divisor,format_name,scale=1.0):
                 mime='image/jpeg';out=BytesIO();image.save(out,format='JPEG',quality=88,optimize=True)
             elif format_name=='png':
                 mime='image/png';out=BytesIO();image.save(out,format='PNG',optimize=True)
-            else:raise TextureError('Native texture pipeline supports PNG or JPEG')
+            elif format_name=='webp':
+                if not features.check('webp'):
+                    raise TextureError('Pillow WebP encoder is unavailable on this server')
+                if image.mode not in ('RGB','RGBA'):
+                    image=image.convert('RGBA' if 'A' in image.getbands() else 'RGB')
+                mime='image/webp';out=BytesIO();image.save(out,format='WEBP',quality=85,method=6)
+            else:raise TextureError('Native texture pipeline supports PNG, JPEG or WebP')
             value=out.getvalue()
             if len(value)>MAX_TEXTURE:raise TextureError('Processed texture is too large')
             return mime,value
@@ -152,7 +159,7 @@ def replace_glb_textures(data,*,divisor=1,texture_scale=1.0,texture_format='orig
     try:divisor=int(divisor)
     except (ValueError,TypeError) as error:raise TextureError('Texture factor must be 1, 2, 4, 8 or 16') from error
     if divisor not in (1,2,4,8,16):raise TextureError('Texture factor must be 1, 2, 4, 8 or 16')
-    if texture_format not in ('original','png','jpeg'):raise TextureError('Select Original, PNG or JPEG for native texture processing')
+    if texture_format not in ('original','png','jpeg','webp'):raise TextureError('Select Original, PNG, JPEG or WebP for native texture processing')
     try:texture_scale=float(texture_scale)
     except (TypeError,ValueError) as error:raise TextureError('Texture scale must be between 6.25% and 100%') from error
     if not .0625<=texture_scale<=1:raise TextureError('Texture scale must be between 6.25% and 100%')
@@ -182,8 +189,25 @@ def replace_glb_textures(data,*,divisor=1,texture_scale=1.0,texture_format='orig
     for item in doc.get('images',[]):
         if 'bufferView' in item:
             view_id=int(item['bufferView']);referenced_images[view_id]=referenced_images.get(view_id,0)+1
+    # EXT_texture_webp is a texture-level extension, not an image MIME override
+    # in base glTF. Convert only colour/emissive slots, leaving normal/ORM maps
+    # intact. Preserve original images when the same image is shared with a
+    # non-colour texture or referenced by another feature.
+    color_textures=set()
+    for material in doc.get('materials',[]):
+        for ref in (material.get('pbrMetallicRoughness',{}).get('baseColorTexture'),
+                    material.get('emissiveTexture')):
+            if isinstance(ref,dict) and isinstance(ref.get('index'),int):
+                color_textures.add(ref['index'])
+    if texture_format=='webp' and not color_textures and not doc.get('materials'):
+        color_textures=set(range(len(doc.get('textures',[]))))
+    color_images={doc['textures'][ti].get('source') for ti in color_textures
+                  if ti<len(doc.get('textures',[]))}
+    color_images.discard(None)
+    webp_textures={}
     updated=0
     for index,mime,blob in originals:
+        if texture_format=='webp' and index not in color_images:continue
         if replacements is not None and index not in replacements:continue
         if replacements is not None:
             mime,blob=replacements[index]
@@ -198,6 +222,35 @@ def replace_glb_textures(data,*,divisor=1,texture_scale=1.0,texture_format='orig
                 actual='image/png' if parsed.format=='PNG' else 'image/jpeg' if parsed.format=='JPEG' else ''
                 if actual!=mime:raise TextureError('Replacement extension does not match image data')
         old_view=doc['images'][index].get('bufferView')
+        if texture_format=='webp':
+            # Keep the PNG/JPEG image if any other slot shares it; this is
+            # also safer for assets with materials outside the core schema.
+            non_colour_uses=any(ti not in color_textures and tex.get('source')==index
+                                for ti,tex in enumerate(doc.get('textures',[])))
+            shared_view=old_view is not None and (int(old_view) in used_by_geometry or referenced_images.get(int(old_view),0)>1)
+            if not non_colour_uses and not shared_view:
+                # In-place WebP image replaces PNG/JPEG, avoiding duplicate
+                # payload and delivering the expected file-size reduction.
+                webp_index=index
+                if old_view is None:
+                    view_index=len(views)
+                    views.append({'buffer':0,'byteOffset':0,'byteLength':len(blob)})
+                else:view_index=int(old_view)
+                view_payloads[view_index]=blob
+                doc['images'][index].pop('uri',None)
+                doc['images'][index]['bufferView']=view_index
+                doc['images'][index]['mimeType']='image/webp'
+            else:
+                view_index=len(views)
+                views.append({'buffer':0,'byteOffset':0,'byteLength':len(blob)})
+                view_payloads[view_index]=blob
+                webp_index=len(doc['images'])
+                doc['images'].append({'bufferView':view_index,'mimeType':'image/webp'})
+            for tex_id in color_textures:
+                if tex_id<len(doc.get('textures',[])) and doc['textures'][tex_id].get('source')==index:
+                    webp_textures[tex_id]=webp_index
+            updated+=1
+            continue
         if old_view is not None and (int(old_view) in used_by_geometry or referenced_images.get(int(old_view),0)>1):
             raise TextureError('Embedded texture shares a geometry/image bufferView; export it as a standalone texture first')
         if old_view is None:
@@ -209,7 +262,18 @@ def replace_glb_textures(data,*,divisor=1,texture_scale=1.0,texture_format='orig
         doc['images'][index]['bufferView']=view_index
         doc['images'][index]['mimeType']=mime
         updated+=1
-    if not updated:raise TextureError('No textures replaced')
+    if not updated:raise TextureError('No editable colour textures available for WebP encoding' if texture_format=='webp' else 'No textures replaced')
+    if webp_textures:
+        for tex_id,image_id in webp_textures.items():
+            item=doc['textures'][tex_id]
+            item.setdefault('extensions',{})['EXT_texture_webp']={'source':image_id}
+            item.pop('source',None)
+        doc.setdefault('extensionsUsed',[])
+        if 'EXT_texture_webp' not in doc['extensionsUsed']:
+            doc['extensionsUsed'].append('EXT_texture_webp')
+        doc.setdefault('extensionsRequired',[])
+        if 'EXT_texture_webp' not in doc['extensionsRequired']:
+            doc['extensionsRequired'].append('EXT_texture_webp')
     new_binary=bytearray()
     for i,view in enumerate(views):
         if int(view.get('buffer',0))!=0:raise TextureError('Multi-buffer GLBs need conversion before texture repacking')

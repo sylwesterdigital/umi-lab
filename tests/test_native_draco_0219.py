@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+import struct
 from unittest.mock import patch
 from backend.mesh_options import validate_plan, PlanError
 from backend import mesh_optimize
@@ -37,7 +38,9 @@ class NativeDracoTests(unittest.TestCase):
                 args=command[command.index('--')+1:]
                 plan=json.loads(args[4]);self.assertEqual(plan['geometry_codec'],'draco')
                 self.assertEqual(plan['draco_level'],6)
-                Path(args[1]).write_bytes(b'glTF'+b'1234567890'*6)
+                doc=json.dumps({'asset':{'version':'2.0'},'extensionsUsed':['KHR_draco_mesh_compression']}).encode()
+                doc+=b' '*(-len(doc)%4)
+                Path(args[1]).write_bytes(struct.pack('<4sII',b'glTF',2,20+len(doc))+struct.pack('<I4s',len(doc),b'JSON')+doc)
                 return SimpleNamespace(returncode=0,stdout=b'UMI_BLENDER_OPTIMISE_OK',stderr=b'')
             with patch.object(mesh_optimize,'gltf_cli',return_value=None),\
                  patch.object(mesh_optimize,'blender_status',return_value={'ready':True,'draco_native':True}),\
@@ -53,7 +56,7 @@ class NativeDracoTests(unittest.TestCase):
              patch.object(mesh_optimize,'blender_status',return_value={'ready':True,'draco_native':False}):
             with self.assertRaises(mesh_optimize.BlenderError) as raised:
                 mesh_optimize.optimized_glb('source.glb',options={'preset':'custom','scope':'mesh','geometry_codec':'draco'})
-        self.assertEqual(raised.exception.code,'NATIVE_DRACO_UNAVAILABLE')
+        self.assertEqual(raised.exception.code,'DRACO_ENCODER_UNAVAILABLE')
 
     def test_actual_probe_and_frontend_are_wired(self):
         script=(ROOT/'backend/blender_draco_probe.py').read_text()
