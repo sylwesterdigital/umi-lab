@@ -64,3 +64,11 @@ release. Only `umi-lab.service` is enabled for 3D optimisation via
 `UMI_ENABLE_BLENDER=1` in its own unit; other sites and services are untouched.
 If installation cannot finish inside deployment limits or resources are insufficient,
 the watcher reports the failure and restores the previous active UMI release.
+
+## Blender diagnostics (v0.2.15)
+
+From a logged-in UMI session, `GET /api/mesh/optimisation/status` reports
+whether Blender is installed and enabled in the *running* application service.
+The optimiser distinguishes missing GLB input, unavailable Blender, timeout,
+and import/export failures; detailed operation errors are written to UMI's
+private server log. ZIP model downloads are preserved unchanged.

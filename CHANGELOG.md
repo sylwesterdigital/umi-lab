@@ -1,3 +1,10 @@
+## v0.2.15 — Native drag selection fix and 3D optimisation diagnostics
+
+- Browser text selection is disabled on draggable canvas surfaces, while document editors and text inputs remain selectable.
+- 3D optimisation checks Blender state under the running service and reports explicit failure codes.
+- Safe optimisation from saved ZIP models containing a valid GLB; no paid generation required.
+- Operation-level server logs show errors and durations without exposing credentials.
+
 ## v0.2.14 — Draggable 3D cards and automatic Blender provisioning
 - Drag 3D result cards using any noninteractive portion, including the outer white frame and title; rotating/zooming the model stays independent.
 - Release installer installs Blender from Ubuntu APT when missing, verifies headless glTF/GLB processing and enables it for the UMI service.

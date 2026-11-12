@@ -3,6 +3,7 @@ import base64
 import hashlib
 import csv
 import io
+import tempfile
 import json
 import re
 import logging
@@ -1388,20 +1389,53 @@ def download_mesh_task(task_id):
     mime='application/zip' if ext=='.zip' else 'model/gltf-binary'
     return send_file(path,mimetype=mime,as_attachment=True,download_name=label+ext)
 
+@app.get('/api/mesh/optimisation/status')
+@authenticated
+def mesh_optimisation_status():
+    # Checks the *running service*, not whether APT was asked to install Blender.
+    from .mesh_optimize import blender_status
+    return jsonify(blender_status())
+
 @app.post('/api/projects/<pid>/mesh/optimise')
 @authenticated
 def optimise_mesh(pid):
-    from .mesh_optimize import optimized_glb,BlenderError
+    from .mesh_optimize import optimized_glb, BlenderError
     body=request.get_json(silent=True) or {}
     task_id=str(body.get('task_id',''))
     with store.connect(DATA) as conn:
         if not store.project_for(conn,session['uid'],pid):abort(404)
         task=conn.execute('SELECT * FROM mesh_tasks WHERE id=? AND user_id=? AND project_id=?',(task_id,session['uid'],pid)).fetchone()
         if not task or task['status']!='SUCCEEDED':return jsonify(error='Choose a completed 3D model'),400
-        candidate=mesh_preview_path(task_id)
-        if not candidate.is_file():candidate=MESHES/task['model_file']
-        try:payload=optimized_glb(candidate,body.get('geometry_ratio',.65),body.get('texture_scale',.5))
-        except BlenderError as exc:return jsonify(error=str(exc)),400
+        started=time.monotonic()
+        model_file=task['model_file'] or ''
+        original=MESHES/model_file if model_file else None
+        sidecar=mesh_preview_path(task_id)
+        try:
+            if not original or not original.is_file():
+                raise BlenderError('This task has no saved model file. Refresh its 3D result first.','MISSING_MODEL')
+            # AHOLO and other providers can return ZIPs; extract GLB bytes safely
+            # to a private temporary file, never unpack arbitrary archive members.
+            candidate=sidecar if preview_is_ready(sidecar) else original
+            if candidate.suffix.lower()=='.glb' and preview_is_ready(candidate):
+                payload=optimized_glb(candidate,body.get('geometry_ratio',.65),body.get('texture_scale',.5))
+            else:
+                source_blob=preview_blob(original,sidecar)
+                if not source_blob:
+                    raise BlenderError('Saved model has no valid GLB for optimisation. Recover its preview first.','INVALID_SOURCE')
+                with tempfile.TemporaryDirectory(prefix='umi-mesh-source-',dir=DATA) as tmp:
+                    source=Path(tmp)/'source.glb';source.write_bytes(source_blob)
+                    payload=optimized_glb(source,body.get('geometry_ratio',.65),body.get('texture_scale',.5))
+        except BlenderError as exc:
+            code=exc.code
+            record={'ts':datetime.now(timezone.utc).isoformat(timespec='seconds'),'level':'ERROR','action':'mesh_optimise','status':'failed','code':code,'task':task_id[:8],'duration_ms':round((time.monotonic()-started)*1000),'detail':exc.detail or str(exc)}
+            app.logger.info(json.dumps(record,separators=(',',':')))
+            status=503 if code=='BLENDER_NOT_READY' else 422 if code in ('MISSING_MODEL','INVALID_SOURCE','TOO_LARGE','INVALID_OPTIONS') else 502
+            # Surface a meaningful error to the owning user's session activity.
+            conn.execute('INSERT INTO events(user_id,session_id,created_at,level,action,status) VALUES(?,?,?,?,?,?)',
+                         (session['uid'],session.get('sid',''),int(time.time()),'ERROR',
+                          '3D optimise: '+code+' · '+str(exc)[:190],status))
+            conn.commit()
+            return jsonify(error=str(exc),code=code,detail=exc.detail),status
         new_id=store.new_id();dest=MESHES/(new_id+'.glb');preview=mesh_preview_path(new_id)
         with dest.open('xb') as fp:fp.write(payload)
         os.chmod(dest,0o600)
@@ -1409,7 +1443,10 @@ def optimise_mesh(pid):
         os.chmod(preview,0o600)
         now=int(time.time())
         conn.execute('INSERT INTO mesh_tasks VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',(new_id,pid,task['asset_id'],session['uid'],'local-blender',new_id,'Optimised · '+task['label'],'SUCCEEDED',dest.name,'',0,now,now))
+        conn.execute('INSERT INTO events(user_id,session_id,created_at,level,action,status) VALUES(?,?,?,?,?,?)',
+                     (session['uid'],session.get('sid',''),now,'INFO','3D optimise: success · '+task_id[:8],201))
         conn.commit()
+    app.logger.info(json.dumps({'ts':datetime.now(timezone.utc).isoformat(timespec='seconds'),'level':'INFO','action':'mesh_optimise','status':'succeeded','task':task_id[:8],'new_model':new_id[:8],'bytes':len(payload),'duration_ms':round((time.monotonic()-started)*1000)},separators=(',',':')))
     return jsonify(id=new_id,status='SUCCEEDED',preview_url='/api/mesh-tasks/'+new_id+'/preview',download_url='/api/mesh-tasks/'+new_id+'/download'),201
 
 @app.get('/api/projects/<pid>/export')

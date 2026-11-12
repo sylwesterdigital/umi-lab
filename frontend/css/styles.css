@@ -196,3 +196,19 @@ body[data-theme=warm]{--bg:#29221e;--surface:#3e312a;--ink:#f3ebdf;--muted:#c3b5
 .mesh-card .mesh-card-actions,.mesh-card .mesh-card-actions *{cursor:pointer}
 .mesh-card model-viewer{touch-action:none;cursor:grab}
 .mesh-card model-viewer:active{cursor:grabbing}
+
+/* v0.2.15 — draggable canvas is not browser-selectable text.
+   Editing surfaces remain native and selectable. */
+#studio,#studio #board,#boardWorld,#boardWorld .picture,#boardWorld .mesh-card,
+#boardWorld .canvas-note,#boardWorld .envelope-wrap,.selection-bar,.photo-actions,
+.prompt-card,.job-status,.drawer,.modal-card,.history-bar,.photo-context,
+.photo-composer,.mesh-card *{
+  -webkit-user-select:none;user-select:none;
+}
+#studio input,#studio textarea,#studio [contenteditable="true"],
+#studio .note-editor,#studio .file-text-preview,#studio .photo-composer textarea{
+  -webkit-user-select:text;user-select:text;
+}
+#boardWorld .picture img,#boardWorld model-viewer{
+  -webkit-user-drag:none;user-drag:none;
+}
