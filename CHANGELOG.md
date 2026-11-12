@@ -1,3 +1,10 @@
+## v0.2.12 — Folder focus and safe generation
+- Keep the selected envelope visible while showing its contents. Click to open/close; hold to peek and release to restore the prior canvas.
+- Reuse completed angles from the same source image; generate only missing views.
+- Add explicit Cancel batch separate from Pause, preserving completed images and aborting the local request when possible.
+- Envelope media conversions also have a cancel control, while keeping completed outputs.
+- Canceled queues do not auto-resume; remote providers may still bill work already accepted.
+
 # UMI LAB Changes
 
 ## 0.2.11 — Universal media and sharing foundation (2026-11-12)

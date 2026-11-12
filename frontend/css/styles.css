@@ -184,3 +184,8 @@ body[data-theme=warm]{--bg:#29221e;--surface:#3e312a;--ink:#f3ebdf;--muted:#c3b5
 .picture .file-card-symbol{font-size:22px}
 .mesh-card.selected{outline:4px solid #76e6a4;outline-offset:5px}
 @media(max-width:700px){.media-tool-params{grid-template-columns:1fr}.capture-button{font-size:12px;padding:4px}.pack-menu{max-width:72vw}}
+
+/* v0.2.12: folder focus remains navigable and batch cancellation is deliberate. */
+#boardWorld .pack-back{position:absolute;left:24px;top:-65px;min-width:150px;padding:8px 12px;border:1px solid #88b3a26c;border-radius:18px;background:#233c31e9;color:#d8f8e6;font-size:12px;pointer-events:auto;white-space:nowrap}
+#cancelJob,#cancelQueue{font-size:11px;color:#f8b6a7;padding:7px 9px;border:1px solid #d9a49a69;border-radius:9px;background:#5b302930}
+#cancelJob:hover,#cancelQueue:hover{background:#aa514339;color:#ffe1d9}

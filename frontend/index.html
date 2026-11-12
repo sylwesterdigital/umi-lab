@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#16191c">
-  <meta name="umi-version" content="0.2.11">
+  <meta name="umi-version" content="0.2.12">
   <title>UMI LAB — Object table</title>
   <link rel="stylesheet" href="/static/css/styles.css">
   <script defer src="/static/js/canvas-layouts.js"></script>
@@ -16,7 +16,7 @@
 <body>
   <main id="studio">
     <header class="topbar">
-      <div class="brand"><button id="homeButton" title="Return to the table" type="button">UMI LAB</button><button id="versionButton" title="Release notes" type="button">0.2.11</button></div>
+      <div class="brand"><button id="homeButton" title="Return to the table" type="button">UMI LAB</button><button id="versionButton" title="Release notes" type="button">0.2.12</button></div>
       <div class="top-controls"><button id="workspaceButton" type="button" title="Workspace, models and projects">Workspace <span aria-hidden="true">⌄</span></button><button id="profileButton" type="button" title="Profile"><span id="profileInitial">○</span><img id="profileImage" alt="" hidden></button></div>
     </header>
 
@@ -63,7 +63,7 @@
         <button type="button" id="fitLayout">Fit all</button>
       </div>
     </div>
-    <div id="queueRest" class="queue-rest" hidden><span id="queueRestText"></span><button id="resumeQueue" type="button">Resume</button><button id="retryFailed" type="button" hidden>Retry failed</button></div>
+    <div id="queueRest" class="queue-rest" hidden><span id="queueRestText"></span><button id="resumeQueue" type="button">Resume</button><button id="retryFailed" type="button" hidden>Retry failed</button><button id="cancelQueue" type="button" title="Discard the unfinished batch without deleting completed images">Cancel batch</button></div>
 
     <form id="promptForm" class="prompt-card">
       <button id="uploadButton" type="button" title="Import media" aria-label="Import media">＋</button><button id="newNoteButton" type="button" title="Add editable text document">Text</button><button id="captureCamera" class="capture-button" type="button" title="Open webcam" aria-label="Webcam">◉</button><button id="captureMicrophone" class="capture-button" type="button" title="Record audio" aria-label="Microphone">♩</button>
@@ -74,7 +74,7 @@
       <input id="uploadInput" type="file" accept=".txt,.md,.markdown,.png,.jpg,.jpeg,.webp,.gif,.svg,.pdf,.mp3,.weba,.wav,.ogg,.m4a,.flac,.mp4,.mov,.m4v,.webm,image/*,audio/*,video/*,application/pdf" hidden>
     </form>
 
-    <div id="jobStatus" class="job-status" hidden role="status" aria-live="polite"><span class="job-orb" aria-hidden="true"></span><div class="job-body"><strong id="jobTitle">Generating</strong><span id="jobDetail">Connecting to image model…</span><div class="job-track"><span id="jobProgress"></span></div></div><span id="jobTimer">00:00</span><label class="follow-toggle"><input id="followMode" type="checkbox" checked> Follow</label><button id="stopJob" type="button" title="Pause after this image">Pause</button></div>
+    <div id="jobStatus" class="job-status" hidden role="status" aria-live="polite"><span class="job-orb" aria-hidden="true"></span><div class="job-body"><strong id="jobTitle">Generating</strong><span id="jobDetail">Connecting to image model…</span><div class="job-track"><span id="jobProgress"></span></div></div><span id="jobTimer">00:00</span><label class="follow-toggle"><input id="followMode" type="checkbox" checked> Follow</label><button id="stopJob" type="button" title="Pause after this image">Pause</button><button id="cancelJob" type="button" title="Stop this batch immediately. The current provider request may still incur charges.">Cancel</button></div>
 
     <aside id="drawer" class="drawer" hidden aria-label="Workspace drawer">
       <div class="drawer-top"><h2 id="drawerTitle">Workspace</h2><button id="drawerClose" type="button" title="Close">×</button></div>

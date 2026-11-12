@@ -26,7 +26,7 @@ class TabletopFrontendTests(unittest.TestCase):
         self.assertIn("mode:'component',part_name:x.label",self.js)
         self.assertIn('source_asset_id:source?(nodeAsset(byId(source))?.id||source):null',self.js)
         self.assertIn('reference_ids:source?[nodeAsset(byId(source))?.id||source]:[]',self.js)
-        self.assertIn("state.nodes.find(n=>n.parent===parent&&n.kind===kind",self.js)
+        self.assertIn("function existingForItem(item,kind,source)",self.js)
         self.assertIn('await saveTable()',self.js)
         self.assertIn('state.stopAfter',self.js)
     def test_photoprint_world_and_minimal_feedback(self):
