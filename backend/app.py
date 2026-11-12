@@ -104,7 +104,7 @@ def security(resp):
     resp.headers['Cache-Control']='no-store' if request.path.startswith('/api/') else 'no-cache'
     resp.headers['Content-Security-Policy']=("default-src 'self'; img-src 'self' data: blob:; "
         "script-src 'self' https://cdn.jsdelivr.net 'sha256-V5W/S/ezCmFEoq8zylsgcbGgPNc2njwXvX8NL5xHP7g='; style-src 'self' 'unsafe-inline'; "
-        "connect-src 'self' https://cdn.jsdelivr.net; font-src 'self' blob: data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
+        "connect-src 'self' blob: https://cdn.jsdelivr.net; font-src 'self' blob: data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
     return resp
 
 @app.before_request

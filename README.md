@@ -1,3 +1,7 @@
+## v0.2.8
+- 3D preview embedded GLB textures can load under CSP.
+- Image refinement keeps its selected source visible and opens the saved result automatically.
+
 # UMI LAB — Universal Image Table v0.2.3
 
 The interface has been rebuilt as a clean, freeform image table. One draggable vehicle photo anchors a family of independently generated angle and component images.

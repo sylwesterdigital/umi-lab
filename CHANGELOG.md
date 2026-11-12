@@ -1,5 +1,10 @@
 # UMI LAB changelog
 
+## 0.2.8
+- Fixed CSP connect-src to include blob: for 3D GLB embedded textures (retaining same-origin and jsDelivr policy).
+- Visible refinement progress on the exact source photo, with elapsed time and preserved original.
+- Automatically centre and select completed image variations; retain prompts and report errors clearly.
+
 ## 0.2.7
 - Prefer direct viewer-ready AHOLO GLB, including for URLs with signed/no-extension paths.
 - Recover previews for already successful ZIP-only tasks without repeating generation; keep archive downloads.

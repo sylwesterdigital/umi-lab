@@ -108,3 +108,10 @@ body[data-theme=warm]{--bg:#29221e;--surface:#3e312a;--ink:#f3ebdf;--muted:#c3b5
 
 #boardWorld{z-index:1}#meshLinks path{stroke:var(--stroke);stroke-width:1.3;opacity:.6;fill:none;stroke-dasharray:4 5}
 .picture video{width:100%;height:155px;object-fit:contain;pointer-events:none}.source-grid video{width:100%;height:95px;object-fit:contain;background:#eceeec}
+
+/* v0.2.8 — visible refinement without obscuring image pixels */
+.picture.is-refining .picture-inner{outline:3px solid #7adfbe;outline-offset:5px;animation:umi-refine-ring 2.4s linear infinite}
+.picture.is-refining .picture-inner img{opacity:1!important;filter:none!important}
+.picture.is-refining .refine-badge{position:absolute;z-index:7;left:0;bottom:25px;padding:5px 8px;border-radius:7px;background:#172722e8;border:1px solid #9be7b67d;color:#d8ffe5;font-size:11px;box-shadow:0 4px 14px #0006;pointer-events:none}
+@keyframes umi-refine-ring{0%{outline-color:#64e5bd;box-shadow:0 0 0 3px #48d9e53a}33%{outline-color:#bb8aef;box-shadow:0 0 0 3px #bf79f13a}67%{outline-color:#e79dbb;box-shadow:0 0 0 3px #e79dbb3a}100%{outline-color:#64e5bd;box-shadow:0 0 0 3px #48d9e53a}}
+@media(prefers-reduced-motion:reduce){.picture.is-refining .picture-inner{animation:none}}
