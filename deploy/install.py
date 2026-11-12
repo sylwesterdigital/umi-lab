@@ -416,10 +416,70 @@ def verify_blender_optimiser(release):
             if draco_run.returncode==0 and draco_file.is_file() and 'UMI_DRACO_OK' in (draco_run.stdout or ''):
                 print('BLENDER: native Draco GLB compression level 6 VERIFIED as umi-lab',flush=True)
             else:
-                print('BLENDER: native Draco exporter UNAVAILABLE; optimizer will disable this codec ('+
+                print('BLENDER: native Draco exporter unavailable; checking required glTF Transform fallback ('+
                       blender_error_details(draco_run)[:180]+')',flush=True)
         except (OSError,subprocess.TimeoutExpired):
             print('BLENDER: native Draco exporter probe could not finish; optimization remains available without Draco',flush=True)
+
+
+def verify_draco_runtime(release):
+    """Require an actual Draco-compressed GLB before activating the release.
+
+    Some distro Blender builds accept the export flags but silently produce
+    uncompressed GLBs. First try native Blender as umi-lab, then UMI-managed
+    glTF Transform. A version banner is not sufficient to verify an encoder.
+    """
+    import struct
+    account=pwd.getpwnam('umi-lab')
+    with tempfile.TemporaryDirectory(prefix='umi-draco-verify-',dir=DATA) as temp:
+        root=Path(temp);os.chown(root,account.pw_uid,account.pw_gid);os.chmod(root,0o700)
+        plain=root/'plain.glb';compressed=root/'compressed.glb'
+        blender=shutil.which('blender')
+        if not blender:raise InstallError('DRACO: Blender missing during Draco validation')
+        # A cube is large enough to have indexed triangle primitives.
+        script=("import bpy; "
+                "bpy.ops.wm.read_factory_settings(use_empty=True); "
+                "bpy.ops.mesh.primitive_cube_add(); "
+                "bpy.ops.export_scene.gltf(filepath="+repr(str(plain))+",export_format='GLB')")
+        def valid_draco(path):
+            if not path.is_file():return False
+            blob=path.read_bytes()
+            if len(blob)<28 or blob[:4]!=b'glTF':return False
+            length,kind=struct.unpack_from('<I4s',blob,12)
+            if kind!=b'JSON' or length>len(blob)-20:return False
+            try:document=json.loads(blob[20:20+length])
+            except ValueError:return False
+            return 'KHR_draco_mesh_compression' in document.get('extensionsUsed',[])
+        # Test actual Blender native export, with the installed UMI script.
+        native=root/'native.glb'
+        probe=run(['runuser','-u','umi-lab','--',blender,'--background','--factory-startup',
+                   '--disable-autoexec','--python',str(release/'backend/blender_draco_probe.py'),
+                   '--',str(native)],timeout=70,check=False,env=_blender_smoke_env())
+        if probe.returncode==0 and valid_draco(native):
+            print('DRACO: native Blender compressed GLB verified as umi-lab',flush=True)
+            return 'blender'
+        # Build a fresh uncompressed GLB to test the fallback (not the Draco-encoded one).
+        created=run(['runuser','-u','umi-lab','--',blender,'--background','--factory-startup',
+                     '--disable-autoexec','--python-expr',script],timeout=70,
+                    check=False,env=_blender_smoke_env())
+        if created.returncode or not plain.is_file():
+            raise InstallError('DRACO: could not generate reference GLB: '+_blender_smoke_error(created))
+        managed=BASE/'tools'/'gltf-transform'/'node_modules'/'.bin'/'gltf-transform'
+        cli=str(managed) if managed.is_file() else shutil.which('gltf-transform')
+        if not cli:
+            raise InstallError('DRACO: native Blender exporter produced uncompressed GLB and '+
+                               'UMI fallback installer did not install glTF Transform. '+
+                               'Cannot deploy with broken Draco controls.')
+        env=_blender_smoke_env()
+        env['PATH']=str(BASE/'tools'/'node-current'/'bin')+os.pathsep+env.get('PATH','/usr/bin:/bin')
+        attempt=run(['runuser','-u','umi-lab','--',cli,'draco',str(plain),str(compressed),
+                     '--method','edgebreaker','--encode-speed','0'],timeout=90,check=False,env=env)
+        if attempt.returncode or not valid_draco(compressed):
+            raise InstallError('DRACO: glTF Transform installed but failed real compression: '+
+                               _blender_smoke_error(attempt))
+        print('DRACO: UMI-managed glTF Transform compressed GLB verified as umi-lab',flush=True)
+        return 'gltf-transform'
+
 
 def snapshot(token):
     path=BACKUPS/token
@@ -587,6 +647,7 @@ def install(stage,version,token):
         verify_blender_optimiser(release)
         seed_admin(release)
         prepare_gltf_transform()
+        verify_draco_runtime(release)
         write_atomic(UNIT,unit_source(port))
         link=BASE/'current';temp=BASE/'.next-current'
         temp.unlink(missing_ok=True);temp.symlink_to(release)

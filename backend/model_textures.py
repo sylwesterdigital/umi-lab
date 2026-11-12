@@ -122,7 +122,7 @@ def read_texture_archive(archive,source_data):
         raise TextureError('Invalid texture ZIP or manifest') from error
 
 
-def _image_bytes(blob,divisor,format_name,scale=1.0):
+def _image_bytes(blob,divisor,format_name,scale=1.0,*,quality=85,png_compression=6,webp_effort=6,webp_lossless=False):
     try:
         with Image.open(BytesIO(blob)) as image:
             image.load()
@@ -132,15 +132,15 @@ def _image_bytes(blob,divisor,format_name,scale=1.0):
                 image=image.resize((width,height),Image.Resampling.LANCZOS)
             if format_name=='jpeg':
                 if image.mode not in ('RGB','L'):image=image.convert('RGB')
-                mime='image/jpeg';out=BytesIO();image.save(out,format='JPEG',quality=88,optimize=True)
+                mime='image/jpeg';out=BytesIO();image.save(out,format='JPEG',quality=quality,optimize=True)
             elif format_name=='png':
-                mime='image/png';out=BytesIO();image.save(out,format='PNG',optimize=True)
+                mime='image/png';out=BytesIO();image.save(out,format='PNG',compress_level=png_compression,optimize=False)
             elif format_name=='webp':
                 if not features.check('webp'):
                     raise TextureError('Pillow WebP encoder is unavailable on this server')
                 if image.mode not in ('RGB','RGBA'):
                     image=image.convert('RGBA' if 'A' in image.getbands() else 'RGB')
-                mime='image/webp';out=BytesIO();image.save(out,format='WEBP',quality=85,method=6)
+                mime='image/webp';out=BytesIO();image.save(out,format='WEBP',quality=quality,method=webp_effort,lossless=webp_lossless)
             else:raise TextureError('Native texture pipeline supports PNG, JPEG or WebP')
             value=out.getvalue()
             if len(value)>MAX_TEXTURE:raise TextureError('Processed texture is too large')
@@ -149,13 +149,17 @@ def _image_bytes(blob,divisor,format_name,scale=1.0):
         raise TextureError('Embedded texture cannot be decoded as PNG/JPEG') from error
 
 
-def replace_glb_textures(data,*,divisor=1,texture_scale=1.0,texture_format='original',replacements=None):
+def replace_glb_textures(data,*,divisor=1,texture_scale=1.0,texture_format='original',replacements=None,texture_quality=85,png_compression=6,webp_effort=6,webp_lossless=False):
     """Repack one GLB with updated embedded image bufferViews; never modify mesh payload bytes.
 
     BufferViews are reconstructed without changing geometry data, rigging, or
     animation payloads. A source with direct byte-offset meshopt extensions is
     refused rather than risking an invalid remapped compressed mesh.
     """
+    if type(texture_quality) is not int or not 1<=texture_quality<=100:raise TextureError('Texture quality must be 1–100')
+    if type(png_compression) is not int or not 0<=png_compression<=9:raise TextureError('PNG compression must be 0–9')
+    if type(webp_effort) is not int or not 0<=webp_effort<=6:raise TextureError('WebP encoding effort must be 0–6')
+    if type(webp_lossless) is not bool:raise TextureError('WebP lossless must be boolean')
     try:divisor=int(divisor)
     except (ValueError,TypeError) as error:raise TextureError('Texture factor must be 1, 2, 4, 8 or 16') from error
     if divisor not in (1,2,4,8,16):raise TextureError('Texture factor must be 1, 2, 4, 8 or 16')
@@ -213,7 +217,7 @@ def replace_glb_textures(data,*,divisor=1,texture_scale=1.0,texture_format='orig
             mime,blob=replacements[index]
             if mime not in IMAGE_MIME:raise TextureError('Only PNG/JPEG replacements are supported')
         if divisor!=1 or texture_scale!=1 or texture_format!='original':
-            mime,blob=_image_bytes(blob,divisor,texture_format if texture_format!='original' else ('png' if mime=='image/png' else 'jpeg'),texture_scale)
+            mime,blob=_image_bytes(blob,divisor,texture_format if texture_format!='original' else ('png' if mime=='image/png' else 'jpeg'),texture_scale,quality=texture_quality,png_compression=png_compression,webp_effort=webp_effort,webp_lossless=webp_lossless)
         else:
             # Validate that reimported bytes really match their stated image format.
             with Image.open(BytesIO(blob)) as parsed:

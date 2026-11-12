@@ -263,3 +263,12 @@ body[data-theme=warm]{--bg:#29221e;--surface:#3e312a;--ink:#f3ebdf;--muted:#c3b5
 .mesh-draco-quantization{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px 12px}
 .mesh-draco-quantization label{display:flex;flex-direction:column;gap:4px;font-size:0.88em}
 .mesh-draco-quantization input{width:100%;min-width:0}
+
+/* Independent texture encoder quality controls */
+.mesh-texture-controls{display:grid;gap:12px;margin:4px 0 14px}
+.mesh-texture-controls[hidden],.mesh-texture-row[hidden]{display:none!important}
+.mesh-texture-row{display:grid;gap:7px}
+.mesh-texture-row label{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.mesh-texture-row input[type=range]{width:100%;accent-color:var(--mint,#b5e9d0)}
+.mesh-texture-row small{font-size:.77rem;color:var(--muted,#a9bcb3);line-height:1.3}
+.mesh-texture-row .mesh-opt-check{display:flex;justify-content:flex-start;font-size:.85rem;gap:7px}

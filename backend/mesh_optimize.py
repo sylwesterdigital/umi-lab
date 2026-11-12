@@ -31,13 +31,13 @@ class BlenderError(ValueError):
 def gltf_cli():
     # Confirm the selected Node runtime can actually launch the encoder.
     managed=Path('/opt/umi-lab/tools/gltf-transform/node_modules/.bin/gltf-transform')
-    candidate=shutil.which('gltf-transform') or (str(managed) if managed.is_file() else None)
-    if not candidate:return None
-    try:
-        check=subprocess.run([candidate,'--version'],capture_output=True,timeout=10,
-                             check=False,env=blender_runtime_env())
-    except (OSError,subprocess.TimeoutExpired):return None
-    return candidate if check.returncode==0 else None
+    for candidate in ([str(managed)] if managed.is_file() else [])+([shutil.which('gltf-transform')] if shutil.which('gltf-transform') else []):
+        try:
+            check=subprocess.run([candidate,'--version'],capture_output=True,timeout=10,
+                                 check=False,env=blender_runtime_env())
+        except (OSError,subprocess.TimeoutExpired):continue
+        if check.returncode==0:return candidate
+    return None
 
 @lru_cache(maxsize=1)
 def blender_draco_probe():
@@ -190,7 +190,9 @@ def optimized_glb(source,ratio=.65,texture=.5,options=None):
             native_format=fmt if fmt in ('png','jpeg','webp') else 'original'
             try:
                 binary=replace_glb_textures(current.read_bytes(),divisor=plan['texture_divisor'],
-                         texture_scale=plan['texture_scale'],texture_format=native_format)
+                         texture_scale=plan['texture_scale'],texture_format=native_format,
+                         texture_quality=plan['texture_quality'],png_compression=plan['png_compression'],
+                         webp_effort=plan['webp_effort'],webp_lossless=plan['webp_lossless'])
             except TextureError as error:
                 if scope!='full' or 'No editable embedded' not in str(error):
                     raise BlenderError(str(error),'TEXTURE_PROCESSING_FAILED') from error

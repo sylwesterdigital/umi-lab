@@ -1,3 +1,9 @@
+## 0.2.22 — Verified Draco and independent texture quality
+- Verify the actual Draco compressor under the UMI service account during installation; fail safely with a specific error instead of silently deploying disabled Draco.
+- Prefer managed glTF Transform fallback when Blender build lacks native Draco; verify KHR_draco_mesh_compression in actual output.
+- Add JPEG/WebP quality, WebP effort and lossless toggle, PNG compression effort; retain 1×–16× texture downscaling.
+- Keep original models and isolate UMI-only codec tools.
+
 ## 0.2.21 — Repair Ubuntu Blender verification environment
 - Fix the v0.2.20 deployment failure: the root installer no longer imports Pillow-dependent backend code using system Python.
 - Keep Pillow and image-processing dependencies exclusively in UMI LAB's release virtualenv.

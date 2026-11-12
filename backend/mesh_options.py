@@ -20,6 +20,7 @@ SCOPES={'full','mesh','textures'}
 DIVISORS={1,2,4,8,16}
 CODECS={'none','draco','meshopt'}
 BOOLS={'clean_loose','recalc_normals','smooth_faces','smooth_edges','weighted_normals','allow_rigged'}
+TEXTURE_DEFAULTS={'texture_quality':85,'png_compression':6,'webp_effort':6,'webp_lossless':False}
 DRACO_DEFAULTS={'draco_level':6,'draco_position_bits':14,'draco_normal_bits':10,
                 'draco_texcoord_bits':12,'draco_color_bits':10,'draco_generic_bits':12}
 
@@ -34,6 +35,7 @@ def validate_plan(raw=None):
     plan['scope']=raw.get('scope','full') if preset=='custom' else 'full'
     plan['texture_divisor']=1
     plan.update(DRACO_DEFAULTS)
+    plan.update(TEXTURE_DEFAULTS)
     if preset=='custom':
         if 'texture_divisor' in raw:
             try:plan['texture_divisor']=int(raw['texture_divisor'])
@@ -48,6 +50,13 @@ def validate_plan(raw=None):
         for key in BOOLS:
             value=raw.get(key,False)
             if not isinstance(value,bool):raise PlanError(key+' must be true or false')
+            plan[key]=value
+        for key in TEXTURE_DEFAULTS:
+            if key not in raw:continue
+            value=raw[key]
+            if key=='webp_lossless':
+                if type(value) is not bool:raise PlanError('webp_lossless must be boolean')
+            elif type(value) is not int:raise PlanError(key+' must be an integer')
             plan[key]=value
         for key in DRACO_DEFAULTS:
             if key in raw:
@@ -67,6 +76,9 @@ def validate_plan(raw=None):
         raise PlanError('Texture-only optimisation cannot change geometry compression')
     if plan['texture_format'] not in FORMATS:raise PlanError('Unsupported texture format')
     if plan['geometry_codec'] not in CODECS:raise PlanError('Unsupported geometry compression')
+    if not 1<=plan['texture_quality']<=100:raise PlanError('Texture quality must be 1–100')
+    if not 0<=plan['png_compression']<=9:raise PlanError('PNG compression must be 0–9')
+    if not 0<=plan['webp_effort']<=6:raise PlanError('WebP effort must be 0–6')
     if not 0<=plan['draco_level']<=6:raise PlanError('Draco compression level must be 0–6')
     for key in ('draco_position_bits','draco_normal_bits','draco_texcoord_bits',
                 'draco_color_bits','draco_generic_bits'):

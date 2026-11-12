@@ -10,8 +10,8 @@ ROOT=Path(__file__).resolve().parent.parent
 class Canvas026Contract(unittest.TestCase):
     def test_release_versions_and_script_syntax_contract(self):
         version=json.loads((ROOT/'version.json').read_text())['version']
-        self.assertEqual(version,'0.2.21')
-        self.assertIn('content="0.2.21"',(ROOT/'frontend/index.html').read_text())
+        self.assertEqual(version,'0.2.22')
+        self.assertIn('content="0.2.22"',(ROOT/'frontend/index.html').read_text())
 
     def test_envelopes_are_in_scaled_canvas_and_position_worldwise(self):
         html=(ROOT/'frontend/index.html').read_text()
