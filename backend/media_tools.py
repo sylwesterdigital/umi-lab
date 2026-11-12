@@ -25,15 +25,19 @@ class MediaError(ValueError):
     pass
 
 def media_type(name, supplied=''):
-    """Select MIME by extension rather than trusting a browser claim."""
+    """Validate extension against a narrow MIME allowlist, including OS-specific aliases."""
     mime = MEDIA_TYPES.get(Path(name or '').suffix.lower())
-    if not mime or (supplied and supplied != mime and supplied not in ('application/octet-stream', '')):
-        # Some browsers submit unusual or empty MIME for SVG, MOV and M4A.
-        if not mime or (supplied and supplied not in ('application/octet-stream',
-            'video/mp4' if mime == 'video/x-m4v' else mime,
-            'audio/x-m4a' if mime == 'audio/mp4' else mime,
-            'image/svg+xml' if mime == 'image/svg+xml' else mime)):
-            raise MediaError('Unsupported or mismatched media type')
+    aliases = {
+        'audio/wav': {'audio/x-wav', 'audio/wave', 'audio/vnd.wave', 'audio/x-pn-wav'},
+        'audio/mp4': {'audio/x-m4a', 'audio/m4a'},
+        'audio/mpeg': {'audio/mp3', 'audio/x-mp3'},
+        'audio/ogg': {'application/ogg'},
+        'video/quicktime': {'video/x-quicktime'},
+        'video/x-m4v': {'video/mp4'},
+    }
+    claimed = (supplied or '').split(';',1)[0].strip().lower()
+    if not mime or (claimed and claimed not in ({mime, 'application/octet-stream'} | aliases.get(mime, set()))):
+        raise MediaError('Unsupported or mismatched media type')
     return mime
 
 def clean_svg(blob):

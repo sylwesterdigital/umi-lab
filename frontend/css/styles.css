@@ -136,3 +136,19 @@ body[data-theme=warm]{--bg:#29221e;--surface:#3e312a;--ink:#f3ebdf;--muted:#c3b5
 .media-download,.mesh-stage-heading a{font-size:12px;border:1px solid #78958a76;border-radius:8px;padding:7px 10px;text-decoration:none;color:#c1e9d4}
 #newNoteButton{font-size:12px;letter-spacing:.01em;color:#cde2d6;border:1px solid #71877966;border-radius:9px;padding:6px 8px}
 @media(max-width:700px){#newNoteButton{font-size:10px;padding:6px 5px}.canvas-note{width:330px}}
+
+/* v0.2.10 — quiet confirmation and native 3D orbit interaction */
+.action-dialog{gap:13px;border-radius:20px;max-width:420px;background:#242d2b;box-shadow:0 30px 85px #0009}
+.action-dialog #actionMessage{font-size:13px;color:var(--ink);line-height:1.55;white-space:pre-line}
+.action-dialog #actionMeshFields{gap:12px}
+.action-dialog #actionMeshFields>label{display:flex;flex-direction:column;gap:7px;font-size:12px;color:var(--muted)}
+.action-dialog #actionMeshFields>.check-row{flex-direction:row;align-items:center}
+.action-dialog #actionMeshFields select{width:100%;color:var(--ink)}
+.action-dialog .modal-actions{justify-content:flex-end;gap:8px}
+.action-dialog .modal-actions button{border:1px solid #7a90885b;border-radius:12px;padding:10px 15px;font-size:13px}
+.action-dialog .modal-actions .subtle-primary{color:#20342d;background:#cfe8dc}
+.action-dialog .configure-provider{color:#c6ead6;text-align:left;font-size:12px;text-decoration:underline;text-underline-offset:3px;padding:2px 0}
+.action-dialog #actionError{white-space:pre-wrap;font-size:12px;line-height:1.55;margin:0}
+.mesh-card model-viewer,.mesh-stage>model-viewer{touch-action:none;cursor:grab;pointer-events:auto}
+.mesh-card model-viewer:active,.mesh-stage>model-viewer:active{cursor:grabbing}
+.mesh-card header{cursor:move;touch-action:none}

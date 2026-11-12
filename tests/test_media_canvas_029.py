@@ -9,9 +9,11 @@ ROOT=Path(__file__).resolve().parent.parent
 class MediaCanvas029(unittest.TestCase):
     def test_media_types(self):
         for file,mime in [('a.svg','image/svg+xml'),('a.gif','image/gif'),('a.pdf','application/pdf'),
-                          ('a.m4a','audio/mp4'),('a.mp3','audio/mpeg'),('a.mov','video/quicktime'),('a.webm','video/webm')]:
+                          ('a.m4a','audio/mp4'),('a.mp3','audio/mpeg'),('a.mov','video/quicktime'),('a.webm','video/webm'),('a.wav','audio/wav')]:
             self.assertEqual(media_type(file,mime),mime)
         with self.assertRaises(MediaError):media_type('bad.exe','application/octet-stream')
+        with self.assertRaises(MediaError):media_type('voice.wav','text/html')
+        with self.assertRaises(MediaError):media_type('voice.wav','video/mp4')
     def test_svg_safety_and_gif_animation(self):
         self.assertIn(b'<ns0:svg',clean_svg(b'<svg xmlns="http://www.w3.org/2000/svg"><rect width="20" height="20"/></svg>'))
         for evil in [b'<svg onload="alert(1)"/>',b'<svg><script>bad()</script></svg>',b'<svg><foreignObject/></svg>',

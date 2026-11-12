@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#16191c">
-  <meta name="umi-version" content="0.2.9">
+  <meta name="umi-version" content="0.2.10">
   <title>UMI LAB — Object table</title>
   <link rel="stylesheet" href="/static/css/styles.css">
   <script defer src="/static/js/canvas-layouts.js"></script>
@@ -15,7 +15,7 @@
 <body>
   <main id="studio">
     <header class="topbar">
-      <div class="brand"><button id="homeButton" title="Return to the table" type="button">UMI LAB</button><button id="versionButton" title="Release notes" type="button">0.2.9</button></div>
+      <div class="brand"><button id="homeButton" title="Return to the table" type="button">UMI LAB</button><button id="versionButton" title="Release notes" type="button">0.2.10</button></div>
       <div class="top-controls"><button id="workspaceButton" type="button" title="Workspace, models and projects">Workspace <span aria-hidden="true">⌄</span></button><button id="profileButton" type="button" title="Profile"><span id="profileInitial">○</span><img id="profileImage" alt="" hidden></button></div>
     </header>
 
@@ -102,6 +102,21 @@
       <label hidden>Legacy scene type<select id="subjectType"><option value="vehicle">Vehicle</option><option value="person">Person & outfit</option><option value="room">Room / scene</option><option value="product">Product</option><option value="machine">Machine / robot</option><option value="object">Other object</option></select></label>
       <label>Complexity<select id="partCollection"><option value="basic">Basic · 12 parts</option><option value="medium">Medium · ~40 parts</option><option value="advanced">Advanced · ~90 parts</option><option value="all">Complete catalogue</option><option value="interior">Interior only</option><option value="running">Running gear</option></select></label><input id="partSearch" type="search" placeholder="Filter possible parts or objects…" aria-label="Filter part names"><div class="custom-part"><input id="customPart" type="text" maxlength="80" placeholder="Add object not listed (e.g. handbag)"><button id="addCustomPart" type="button">Add</button></div><div class="button-row"><button id="selectAllParts" type="button">Select all</button><button id="selectNoneParts" type="button">Select none</button></div><div id="partCount" class="quiet"></div><div id="partPreview" class="parts-checklist"></div><div class="button-row modal-actions"><button id="partsCancel" type="button">Cancel</button><button id="partsPlan" type="button">Plan blank cards</button><button id="partsStart" class="subtle-primary" type="button">Generate selected</button></div></div></section>
 
+    <section id="actionModal" class="modal-scrim" hidden role="dialog" aria-modal="true" aria-labelledby="actionTitle" aria-describedby="actionMessage">
+      <div class="modal-card small action-dialog">
+        <div class="modal-title"><h2 id="actionTitle">Confirm action</h2><button id="actionClose" type="button" aria-label="Close">×</button></div>
+        <p id="actionMessage" class="quiet"></p>
+        <div id="actionMeshFields" class="stack" hidden>
+          <label>3D provider<select id="actionMeshProvider" aria-label="3D generation provider"></select></label>
+          <label class="check-row"><input id="actionMeshTexture" type="checkbox"> Generate textures</label>
+          <p id="actionProviderStatus" class="quiet" role="status"></p>
+          <button id="actionConfigure" type="button" class="configure-provider" hidden>Configure this provider in Models</button>
+          <p id="actionPrice" class="quiet"></p>
+        </div>
+        <p id="actionError" class="error" role="alert" hidden></p>
+        <div class="button-row modal-actions"><button id="actionCancel" type="button">Cancel</button><button id="actionConfirm" type="button" class="subtle-primary">OK</button></div>
+      </div>
+    </section>
     <section id="authModal" class="modal-scrim" hidden role="dialog" aria-modal="true" aria-label="Sign in"><div class="modal-card small"><div class="modal-title"><h2 id="authHeading">Continue</h2><button id="authClose" type="button">×</button></div><div class="auth-switch"><button data-auth="guest" type="button">Guest</button><button data-auth="login" type="button">Sign in</button><button data-auth="register" type="button">Create account</button></div><form id="authForm" class="stack"><label id="guestNameWrap">Name<input id="guestName" maxlength="80" placeholder="Name"></label><label id="authUserWrap" hidden>Username<input id="authUser" autocomplete="username"></label><label id="authPasswordWrap" hidden>Password<input id="authPassword" type="password" autocomplete="current-password"></label><label id="authEmailWrap" hidden>Email (optional)<input id="authEmail" type="email"></label><p id="authError" class="error"></p><button id="authSubmit" type="submit" class="subtle-primary">Continue</button></form></div></section>
     <section id="profileModal" class="modal-scrim" hidden role="dialog" aria-modal="true" aria-label="Profile"><div class="modal-card small"><div class="modal-title"><h2>Profile</h2><button id="profileClose" type="button">×</button></div><form id="profileForm" class="stack"><label>Display name<input id="displayName" maxlength="80"></label><label>About<input id="profileBio" maxlength="240"></label><label>Creative focus<input id="profileFocus" maxlength="60"></label><label>Profile photo<input id="avatarUpload" type="file" accept="image/jpeg,image/png,image/webp"></label><button type="submit" class="subtle-primary">Save</button></form><div class="button-row"><button id="upgradeButton" type="button" hidden>Protect profile</button><button id="logoutButton" type="button">Sign out</button></div></div></section>
     <div id="toast" class="toast" role="alert" hidden></div>

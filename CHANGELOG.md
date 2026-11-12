@@ -47,6 +47,13 @@
 
 # UMI LAB Changelog
 
+## 0.2.10
+- Fix Ubuntu WAV media upload type validation for audio/x-wav and standard aliases.
+- Replace browser confirmation prompts with an accessible in-app dialog.
+- Show connected 3D providers and actionable request errors before submitting.
+- Prevent canvas drag/zoom handlers from hijacking 3D model viewer orbit controls.
+
+
 ## 0.2.5
 - Added compact three-dot per-image contextual actions and image-grounded AI prompt composer.
 - Added photo image variations plus vision model descriptions, storyboard plans, avatar rig plans and fictional persona concepts.
