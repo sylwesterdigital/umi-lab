@@ -309,6 +309,22 @@ def verify_blender_optimiser(release):
         if result.open('rb').read(4)!=b'glTF':
             raise InstallError('Blender optimiser produced an invalid GLB')
         print('BLENDER: real GLB import, optimise and export PASSED as umi-lab',flush=True)
+        # Native Blender Draco is independent of the optional glTF Transform CLI.
+        # Probe the actual exported GLB as the service user. Do not block a
+        # deployment with unsupported Draco builds: the UI will disable it.
+        draco_file=folder/'draco-probe.glb'
+        draco_cmd=[binary,'--background','--factory-startup','--disable-autoexec','--python',
+                   str(release/'backend/blender_draco_probe.py'),'--',str(draco_file)]
+        draco_cmd=['runuser','-u','umi-lab','--',*draco_cmd]
+        try:
+            draco_run=run(draco_cmd,timeout=60,check=False,env=blender_runtime_env())
+            if draco_run.returncode==0 and draco_file.is_file() and 'UMI_DRACO_OK' in (draco_run.stdout or ''):
+                print('BLENDER: native Draco GLB compression level 6 VERIFIED as umi-lab',flush=True)
+            else:
+                print('BLENDER: native Draco exporter UNAVAILABLE; optimizer will disable this codec ('+
+                      blender_error_details(draco_run)[:180]+')',flush=True)
+        except (OSError,subprocess.TimeoutExpired):
+            print('BLENDER: native Draco exporter probe could not finish; optimization remains available without Draco',flush=True)
 
 def snapshot(token):
     path=BACKUPS/token

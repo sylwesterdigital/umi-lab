@@ -253,3 +253,13 @@ body[data-theme=warm]{--bg:#29221e;--surface:#3e312a;--ink:#f3ebdf;--muted:#c3b5
 .umi-rig-controls select{cursor:pointer;max-width:150px;text-overflow:ellipsis}
 .mesh-stage>.umi-rig-controls{justify-content:center;flex:none}
 @media(prefers-reduced-motion:reduce){.umi-model-frame .umi-rig-controls{transition:none}}
+
+/* Native Blender Draco compression controls */
+.mesh-draco-controls{display:grid;gap:10px;padding:10px 0 2px}
+.mesh-draco-controls[hidden]{display:none}
+.mesh-draco-row{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.mesh-draco-row output{white-space:nowrap;color:var(--ink)}
+.mesh-draco-controls>input[type=range]{width:100%}
+.mesh-draco-quantization{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px 12px}
+.mesh-draco-quantization label{display:flex;flex-direction:column;gap:4px;font-size:0.88em}
+.mesh-draco-quantization input{width:100%;min-width:0}

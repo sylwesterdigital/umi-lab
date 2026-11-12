@@ -64,7 +64,18 @@ def execute():
             if img.size[0]>0 and img.size[1]>0 and img.source=='FILE':
                 try:img.scale(max(4,int(img.size[0]*scale)),max(4,int(img.size[1]*scale)))
                 except RuntimeError:pass
-    exported=bpy.ops.export_scene.gltf(filepath=str(Path(output).resolve()),export_format='GLB',export_apply=True)
+    export_options={'filepath':str(Path(output).resolve()),'export_format':'GLB','export_apply':True}
+    if config.get('geometry_codec')=='draco':
+        # Blender's built-in glTF exporter supports KHR_draco_mesh_compression.
+        # Compression level is encoding effort (0 fastest, 6 smallest), not polygon reduction.
+        export_options.update(export_draco_mesh_compression_enable=True,
+            export_draco_mesh_compression_level=int(config.get('draco_level',6)),
+            export_draco_position_quantization=int(config.get('draco_position_bits',14)),
+            export_draco_normal_quantization=int(config.get('draco_normal_bits',10)),
+            export_draco_texcoord_quantization=int(config.get('draco_texcoord_bits',12)),
+            export_draco_color_quantization=int(config.get('draco_color_bits',10)),
+            export_draco_generic_quantization=int(config.get('draco_generic_bits',12)))
+    exported=bpy.ops.export_scene.gltf(**export_options)
     if 'FINISHED' not in exported:raise RuntimeError('Blender glTF export did not complete')
     if not Path(output).is_file():raise RuntimeError('Blender did not create an output GLB')
     print('UMI_BLENDER_OPTIMISE_OK',flush=True)

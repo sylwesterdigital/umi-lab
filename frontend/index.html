@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#16191c">
-  <meta name="umi-version" content="0.2.18">
+  <meta name="umi-version" content="0.2.19">
   <title>UMI LAB — Object table</title>
   <link rel="stylesheet" href="/static/css/styles.css">
   <script defer src="/static/js/canvas-layouts.js"></script>
@@ -16,7 +16,7 @@
 <body>
   <main id="studio">
     <header class="topbar">
-      <div class="brand"><button id="homeButton" title="Return to the table" type="button">UMI LAB</button><button id="versionButton" title="Release notes" type="button">0.2.18</button></div>
+      <div class="brand"><button id="homeButton" title="Return to the table" type="button">UMI LAB</button><button id="versionButton" title="Release notes" type="button">0.2.19</button></div>
       <div class="top-controls"><button id="workspaceButton" type="button" title="Workspace, models and projects">Workspace <span aria-hidden="true">⌄</span></button><button id="profileButton" type="button" title="Profile"><span id="profileInitial">○</span><img id="profileImage" alt="" hidden></button></div>
     </header>
 
@@ -62,7 +62,19 @@
           <label for="meshOptMerge">Merge by distance (model units)</label><input type="number" id="meshOptMerge" min="0" max="0.01" step="0.0001" value="0" inputmode="decimal">
           <label for="meshOptTextureFormat">Texture encoding</label><select id="meshOptTextureFormat"><option value="original">Original (GLB compatible)</option><option value="webp">WebP · color</option><option value="jpeg">JPEG · color</option><option value="png">PNG</option><option value="ktx2-etc1s">KTX2 · ETC1S</option><option value="ktx2-uastc">KTX2 · UASTC</option></select>
           <label for="meshOptCodec">Geometry compression</label><select id="meshOptCodec"><option value="none">None · compatible</option><option value="draco">Draco</option><option value="meshopt">Meshopt</option></select>
-          <p id="meshOptCodecNote" class="mesh-opt-description">Advanced encodings require glTF Transform and runtime decoder support.</p>
+          <div id="meshOptDracoOptions" class="mesh-draco-controls" hidden>
+            <div class="mesh-draco-row"><label for="meshOptDracoLevel">Blender Draco · compression level</label><output id="meshOptDracoLevelValue">6 · highest</output></div>
+            <input type="range" id="meshOptDracoLevel" min="0" max="6" step="1" value="6">
+            <div class="mesh-draco-quantization">
+              <label>Position bits<input type="number" id="meshOptDracoPosition" min="0" max="30" step="1" value="14"></label>
+              <label>Normal bits<input type="number" id="meshOptDracoNormal" min="0" max="30" step="1" value="10"></label>
+              <label>UV bits<input type="number" id="meshOptDracoUV" min="0" max="30" step="1" value="12"></label>
+              <label>Color bits<input type="number" id="meshOptDracoColor" min="0" max="30" step="1" value="10"></label>
+              <label>Generic bits<input type="number" id="meshOptDracoGeneric" min="0" max="30" step="1" value="12"></label>
+            </div>
+            <p class="mesh-opt-description">Draco compresses mesh geometry. Level 6 uses the strongest encoding; the mesh ratio and texture settings are independent.</p>
+          </div>
+          <p id="meshOptCodecNote" class="mesh-opt-description">Blender Draco exports natively; Meshopt and advanced textures require additional codecs.</p>
         </div>
         <p id="meshOptError" class="mesh-opt-error" role="alert" hidden></p>
         <div class="mesh-opt-footer"><button id="meshOptCancel" type="button">Cancel</button><button id="meshOptStart" type="button">Optimise</button></div>

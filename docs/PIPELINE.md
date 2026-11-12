@@ -40,3 +40,12 @@ creates a distinct GLB and SQLite task, preserving the original model.
 
 Real savings depend on texture resolution, texture entropy and geometry size;
 texture conversion is not guaranteed to reduce size in every case.
+
+### Native Blender Draco (v0.2.19)
+On supported Blender installs, UMI exports `KHR_draco_mesh_compression` using
+`bpy.ops.export_scene.gltf(export_draco_mesh_compression_enable=True, export_draco_mesh_compression_level=6, ...)`.
+Compression level 0–6 and position/normal/UV/color/generic quantization (0–30 bits)
+are independent of mesh decimation and texture downscaling. UMI detects encoder
+support by exporting a real compressed GLB as the service user; no glTF Transform
+CLI is required for native Draco. Meshopt and advanced texture codecs still require
+separate installed tools. Source models are never overwritten.

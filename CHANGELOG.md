@@ -1,3 +1,8 @@
+## 0.2.19 — Native Draco compression
+- Fixed Draco being disabled when glTF Transform is absent.
+- Blender native glTF exporter now supports compression level 0–6, and five quantization controls; verifies capability by exporting an actual Draco GLB.
+- Native Draco, Meshopt, and texture codecs are tested and selected independently. Original models remain untouched.
+
 ## v0.2.18 — Imported 3D, animation and independent textures
 - Drag/drop GLB directly onto the canvas, or import FBX, OBJ, STL, PLY, COLLADA (DAE), embedded glTF, USD and USDZ with Blender conversion when supported by the installed importer.
 - Original uploads and preview GLBs are stored separately and privately, owned by the project and available as standalone 3D cards.

@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import json
+from functools import lru_cache
 
 
 # Blender is a separate Python runtime; do not pass the Flask virtualenv into it.
@@ -27,12 +28,26 @@ def gltf_cli():
     managed=Path('/opt/umi-lab/tools/gltf-transform/node_modules/.bin/gltf-transform')
     return shutil.which('gltf-transform') or (str(managed) if managed.is_file() else None)
 
+@lru_cache(maxsize=1)
+def blender_native_draco():
+    """Runtime capability is an actual compressed-GLB export, never a guessed CLI flag."""
+    binary=shutil.which('blender')
+    if not binary or os.environ.get('UMI_ENABLE_BLENDER')!='1':return False
+    with tempfile.TemporaryDirectory(prefix='umi-draco-probe-') as folder:
+        output=Path(folder)/'probe.glb'
+        try:
+            completed=subprocess.run([binary,'--background','--factory-startup','--disable-autoexec',
+                '--python',str(Path(__file__).with_name('blender_draco_probe.py')),'--',str(output)],
+                capture_output=True,timeout=35,check=False,env=blender_runtime_env())
+        except (OSError,subprocess.TimeoutExpired):return False
+        return completed.returncode==0 and output.is_file() and b'UMI_DRACO_OK' in completed.stdout
+
 def blender_status():
     binary=shutil.which('blender')
     enabled=os.environ.get('UMI_ENABLE_BLENDER')=='1'
     if not binary:return {'installed':False,'enabled':enabled,'ready':False,'reason':'Blender executable is missing in the UMI service; deployment did not verify a usable installation.'}
     if not enabled:return {'installed':True,'enabled':False,'ready':False,'reason':'UMI Blender optimisation is not enabled in the active service. Re-deploy with the updated UMI installer.'}
-    return {'installed':True,'enabled':True,'ready':True,'reason':'Blender executable found and optimisation enabled','version':None,'gltf_transform':bool(gltf_cli())}
+    return {'installed':True,'enabled':True,'ready':True,'reason':'Blender executable found and optimisation enabled','version':None,'gltf_transform':bool(gltf_cli()),'draco_native':blender_native_draco()}
 
 def blender_error_details(run):
     """Retain the actual failure (especially a missing module), not Blender's exit banner."""
@@ -70,11 +85,15 @@ def optimized_glb(source,ratio=.65,texture=.5,options=None):
     except PlanError as error:raise BlenderError(str(error),'INVALID_OPTIONS') from error
     scope=plan['scope'];fmt=plan['texture_format'];codec=plan['geometry_codec']
     cli=gltf_cli()
-    if (codec!='none' or fmt in ('webp','ktx2-etc1s','ktx2-uastc')) and not cli:
-        raise BlenderError('WebP, KTX2, Draco and Meshopt require glTF Transform. Native PNG/JPEG and texture downscaling remain available.','ADVANCED_CODEC_UNAVAILABLE')
+    if (codec=='meshopt' or fmt in ('webp','ktx2-etc1s','ktx2-uastc')) and not cli:
+        raise BlenderError('WebP, KTX2 and Meshopt require glTF Transform. Blender exports Draco directly.','ADVANCED_CODEC_UNAVAILABLE')
+
     if scope!='textures':
         info=blender_status()
         if not info['ready']:raise BlenderError(info['reason'],'BLENDER_NOT_READY')
+        if codec=='draco' and not info.get('draco_native'):
+            raise BlenderError('The installed Blender glTF exporter cannot produce Draco-compressed GLB. Check the Blender package and its Draco library.','NATIVE_DRACO_UNAVAILABLE')
+
     source=Path(source)
     if source.suffix.lower()!='.glb' or not source.is_file():
         raise BlenderError('The selected result has no standalone GLB. Recover its preview first.','INVALID_SOURCE')
@@ -127,7 +146,7 @@ def optimized_glb(source,ratio=.65,texture=.5,options=None):
             if completed.returncode or not candidate.is_file():
                 raise BlenderError('Texture encoder could not apply '+cmd,'CODEC_FAILED',blender_error_details(completed))
             current=candidate
-        if codec!='none' and scope!='textures':
+        if codec=='meshopt' and scope!='textures':
             candidate=Path(temp)/'compressed.glb'
             try:
                 completed=subprocess.run([cli,codec,str(current),str(candidate)],

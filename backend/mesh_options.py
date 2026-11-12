@@ -20,6 +20,9 @@ SCOPES={'full','mesh','textures'}
 DIVISORS={1,2,4,8,16}
 CODECS={'none','draco','meshopt'}
 BOOLS={'clean_loose','recalc_normals','smooth_faces','smooth_edges','weighted_normals','allow_rigged'}
+DRACO_DEFAULTS={'draco_level':6,'draco_position_bits':14,'draco_normal_bits':10,
+                'draco_texcoord_bits':12,'draco_color_bits':10,'draco_generic_bits':12}
+
 
 class PlanError(ValueError):pass
 
@@ -30,6 +33,7 @@ def validate_plan(raw=None):
     plan=deepcopy(PRESETS['balanced'] if preset=='custom' else PRESETS[preset]);plan['preset']=preset
     plan['scope']=raw.get('scope','full') if preset=='custom' else 'full'
     plan['texture_divisor']=1
+    plan.update(DRACO_DEFAULTS)
     if preset=='custom':
         if 'texture_divisor' in raw:
             try:plan['texture_divisor']=int(raw['texture_divisor'])
@@ -45,7 +49,13 @@ def validate_plan(raw=None):
             value=raw.get(key,False)
             if not isinstance(value,bool):raise PlanError(key+' must be true or false')
             plan[key]=value
+        for key in DRACO_DEFAULTS:
+            if key in raw:
+                value=raw[key]
+                if type(value) is not int:raise PlanError(key+' must be an integer')
+                plan[key]=value
         for key in ('texture_format','geometry_codec'):
+
             plan[key]=raw.get(key,plan[key])
     else:
         plan['allow_rigged']=False
@@ -57,4 +67,9 @@ def validate_plan(raw=None):
         raise PlanError('Texture-only optimisation cannot change geometry compression')
     if plan['texture_format'] not in FORMATS:raise PlanError('Unsupported texture format')
     if plan['geometry_codec'] not in CODECS:raise PlanError('Unsupported geometry compression')
+    if not 0<=plan['draco_level']<=6:raise PlanError('Draco compression level must be 0–6')
+    for key in ('draco_position_bits','draco_normal_bits','draco_texcoord_bits',
+                'draco_color_bits','draco_generic_bits'):
+        if not 0<=plan[key]<=30:raise PlanError(key+' must be 0–30 bits')
+
     return plan
