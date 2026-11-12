@@ -201,6 +201,40 @@ def prepare_blender():
     return binary
 
 
+def prepare_gltf_transform():
+    """Install optional advanced GLB codecs into UMI-only tools directory.
+
+    Unavailable npm / unsupported Node must not break Blender-only releases.
+    Never changes system npm global packages or unrelated applications.
+    """
+    destination=BASE/'tools'/'gltf-transform'
+    existing=destination/'node_modules'/'.bin'/'gltf-transform'
+    if existing.is_file() or shutil.which('gltf-transform'):
+        print('GLTF: optional texture/mesh codecs available',flush=True)
+        return True
+    node=shutil.which('node');npm=shutil.which('npm')
+    if not node or not npm:
+        print('GLTF: optional codec tools unavailable (Node/npm absent); Blender presets remain enabled',flush=True)
+        return False
+    try:
+        version=run([node,'--version'],timeout=10,check=False)
+        import re as _re
+        match=_re.match(r'v(\d+)',version.stdout.strip())
+        if not match or int(match.group(1))<20:
+            print('GLTF: Node 20+ needed for optional codecs; Blender presets remain enabled',flush=True)
+            return False
+        destination.mkdir(parents=True,exist_ok=True)
+        result=run([npm,'--prefix',str(destination),'install','--no-save','--no-audit','--no-fund',
+                    '@gltf-transform/cli@4.5.0'],timeout=140,check=False)
+        if result.returncode or not existing.is_file():
+            print('GLTF: optional codec installation skipped; Blender presets remain enabled',flush=True)
+            return False
+        print('GLTF: optional compression codecs ready',flush=True)
+        return True
+    except (OSError,subprocess.TimeoutExpired):
+        print('GLTF: optional CLI install unavailable; Blender presets remain enabled',flush=True)
+        return False
+
 def _blender_sample_glb():
     """Return a tiny valid glTF 2.0 triangle for end-to-end importer/exporter testing."""
     import struct
@@ -441,6 +475,7 @@ def install(stage,version,token):
         prepare_blender()
         verify_blender_optimiser(release)
         seed_admin(release)
+        prepare_gltf_transform()
         write_atomic(UNIT,unit_source(port))
         link=BASE/'current';temp=BASE/'.next-current'
         temp.unlink(missing_ok=True);temp.symlink_to(release)

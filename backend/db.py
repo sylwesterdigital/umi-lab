@@ -75,6 +75,13 @@ def init(data_dir):
           credits_est INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_mesh_tasks_project ON mesh_tasks(project_id,created_at);
+        CREATE TABLE IF NOT EXISTS mesh_optimisations (
+          task_id TEXT PRIMARY KEY REFERENCES mesh_tasks(id) ON DELETE CASCADE,
+          source_task_id TEXT NOT NULL REFERENCES mesh_tasks(id) ON DELETE CASCADE,
+          preset TEXT NOT NULL, options TEXT NOT NULL,
+          before_bytes INTEGER NOT NULL, after_bytes INTEGER NOT NULL,
+          created_at INTEGER NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS canvas_revisions (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

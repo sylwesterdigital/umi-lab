@@ -1,3 +1,13 @@
+## v0.2.17 — 3D optimisation workbench and clean model cards
+
+- Move per-model actions into one minimal three-dot menu; retain direct orbit interaction and card dragging.
+- Display original GLB size on each model card; optimized variants show original/output sizes and reduction percentage.
+- Show a temporary 3D processing card with elapsed time during the synchronous Blender request; no fabricated progress percentage.
+- Offer presets Good quality, Balanced, Small and Ultra, plus an Advanced tab for polygon ratio, texture size, loose geometry, merge distance, recalculated normals, smooth shading and weighted normals.
+- Optionally apply glTF Transform texture encoding (PNG/JPEG/WebP/KTX2) or Draco/Meshopt compression when the server tool is available; keep compatibility-safe settings by default.
+- Keep every original GLB unchanged; persist optimisation settings and measured byte counts for each resulting model in SQLite.
+- Ubuntu installer attempts optional glTF Transform installation in an isolated UMI-owned tool directory; failure cannot disable Blender-only presets.
+
 ## v0.2.16 — Blender Python modules and reliable optimisation preflight
 
 - Run the real Blender GLB importer, decimator and exporter under the UMI service user before activating the release.

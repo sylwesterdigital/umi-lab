@@ -1281,7 +1281,19 @@ def list_mesh_tasks(pid):
     with store.connect(DATA) as conn:
         if not store.project_for(conn,session['uid'],pid):abort(404)
         rows=conn.execute('SELECT id,asset_id,provider,label,status,model_file,error,credits_est,created_at,updated_at FROM mesh_tasks WHERE project_id=? AND user_id=? ORDER BY created_at DESC',(pid,session['uid'])).fetchall()
-    return jsonify(tasks=[{**dict(x),'download_url':'/api/mesh-tasks/'+x['id']+'/download' if x['model_file'] and (MESHES/x['model_file']).is_file() else None,**task_preview_info(x)} for x in rows])
+    with store.connect(DATA) as conn:
+        history={r['task_id']:dict(r) for r in conn.execute("""SELECT m.* FROM mesh_optimisations m JOIN mesh_tasks t ON t.id=m.task_id
+                      WHERE t.project_id=? AND t.user_id=?""",(pid,session['uid']))}
+    tasks=[]
+    for row in rows:
+        task=dict(row)
+        path=MESHES/task['model_file'] if task['model_file'] else None
+        task['model_size_bytes']=path.stat().st_size if path and path.is_file() else None
+        task['optimisation']=history.get(task['id'])
+        task['download_url']='/api/mesh-tasks/'+task['id']+'/download' if task['model_size_bytes'] is not None else None
+        task.update(task_preview_info(row))
+        tasks.append(task)
+    return jsonify(tasks=tasks)
 
 @app.post('/api/projects/<pid>/mesh-tasks')
 @authenticated
@@ -1400,7 +1412,14 @@ def mesh_optimisation_status():
 @authenticated
 def optimise_mesh(pid):
     from .mesh_optimize import optimized_glb, BlenderError
+    from .mesh_options import validate_plan, PlanError
     body=request.get_json(silent=True) or {}
+    try:
+        if isinstance(body.get('options'),dict):
+            plan=validate_plan(body['options'])
+        else:
+            plan=validate_plan({'preset':'custom','geometry_ratio':body.get('geometry_ratio',.65),'texture_scale':body.get('texture_scale',.5)})
+    except PlanError as exc:return jsonify(error=str(exc),code='INVALID_OPTIONS'),422
     task_id=str(body.get('task_id',''))
     with store.connect(DATA) as conn:
         if not store.project_for(conn,session['uid'],pid):abort(404)
@@ -1417,19 +1436,21 @@ def optimise_mesh(pid):
             # to a private temporary file, never unpack arbitrary archive members.
             candidate=sidecar if preview_is_ready(sidecar) else original
             if candidate.suffix.lower()=='.glb' and preview_is_ready(candidate):
-                payload=optimized_glb(candidate,body.get('geometry_ratio',.65),body.get('texture_scale',.5))
+                source_glb_size=candidate.stat().st_size
+                payload=optimized_glb(candidate,options=plan)
             else:
                 source_blob=preview_blob(original,sidecar)
                 if not source_blob:
                     raise BlenderError('Saved model has no valid GLB for optimisation. Recover its preview first.','INVALID_SOURCE')
+                source_glb_size=len(source_blob)
                 with tempfile.TemporaryDirectory(prefix='umi-mesh-source-',dir=DATA) as tmp:
                     source=Path(tmp)/'source.glb';source.write_bytes(source_blob)
-                    payload=optimized_glb(source,body.get('geometry_ratio',.65),body.get('texture_scale',.5))
+                    payload=optimized_glb(source,options=plan)
         except BlenderError as exc:
             code=exc.code
             record={'ts':datetime.now(timezone.utc).isoformat(timespec='seconds'),'level':'ERROR','action':'mesh_optimise','status':'failed','code':code,'task':task_id[:8],'duration_ms':round((time.monotonic()-started)*1000),'detail':exc.detail or str(exc)}
             app.logger.info(json.dumps(record,separators=(',',':')))
-            status=503 if code=='BLENDER_NOT_READY' else 422 if code in ('MISSING_MODEL','INVALID_SOURCE','TOO_LARGE','INVALID_OPTIONS') else 502
+            status=503 if code in ('BLENDER_NOT_READY','ADVANCED_CODEC_UNAVAILABLE') else 422 if code in ('MISSING_MODEL','INVALID_SOURCE','TOO_LARGE','INVALID_OPTIONS') else 502
             # Surface a meaningful error to the owning user's session activity.
             conn.execute('INSERT INTO events(user_id,session_id,created_at,level,action,status) VALUES(?,?,?,?,?,?)',
                          (session['uid'],session.get('sid',''),int(time.time()),'ERROR',
@@ -1443,11 +1464,14 @@ def optimise_mesh(pid):
         os.chmod(preview,0o600)
         now=int(time.time())
         conn.execute('INSERT INTO mesh_tasks VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',(new_id,pid,task['asset_id'],session['uid'],'local-blender',new_id,'Optimised · '+task['label'],'SUCCEEDED',dest.name,'',0,now,now))
+        source_size=source_glb_size
+        conn.execute("""INSERT INTO mesh_optimisations(task_id,source_task_id,preset,options,before_bytes,after_bytes,created_at)
+                        VALUES(?,?,?,?,?,?,?)""",(new_id,task_id,plan['preset'],json.dumps(plan,separators=(',',':')),source_size,len(payload),now))
         conn.execute('INSERT INTO events(user_id,session_id,created_at,level,action,status) VALUES(?,?,?,?,?,?)',
                      (session['uid'],session.get('sid',''),now,'INFO','3D optimise: success · '+task_id[:8],201))
         conn.commit()
     app.logger.info(json.dumps({'ts':datetime.now(timezone.utc).isoformat(timespec='seconds'),'level':'INFO','action':'mesh_optimise','status':'succeeded','task':task_id[:8],'new_model':new_id[:8],'bytes':len(payload),'duration_ms':round((time.monotonic()-started)*1000)},separators=(',',':')))
-    return jsonify(id=new_id,status='SUCCEEDED',preview_url='/api/mesh-tasks/'+new_id+'/preview',download_url='/api/mesh-tasks/'+new_id+'/download'),201
+    return jsonify(id=new_id,status='SUCCEEDED',source_bytes=source_size,output_bytes=len(payload),preview_url='/api/mesh-tasks/'+new_id+'/preview',download_url='/api/mesh-tasks/'+new_id+'/download'),201
 
 @app.get('/api/projects/<pid>/export')
 @authenticated

@@ -5,6 +5,8 @@ import re
 import shutil
 import subprocess
 import tempfile
+import json
+
 
 # Blender is a separate Python runtime; do not pass the Flask virtualenv into it.
 BLENDER_STRIP_ENV=('PYTHONPATH','PYTHONHOME','VIRTUAL_ENV','PYTHONUSERBASE','PYTHONSTARTUP','LD_PRELOAD')
@@ -21,12 +23,16 @@ class BlenderError(ValueError):
         # Details are shown only to the authenticated project's owner.
         self.detail=detail[:700]
 
+def gltf_cli():
+    managed=Path('/opt/umi-lab/tools/gltf-transform/node_modules/.bin/gltf-transform')
+    return shutil.which('gltf-transform') or (str(managed) if managed.is_file() else None)
+
 def blender_status():
     binary=shutil.which('blender')
     enabled=os.environ.get('UMI_ENABLE_BLENDER')=='1'
     if not binary:return {'installed':False,'enabled':enabled,'ready':False,'reason':'Blender executable is missing in the UMI service; deployment did not verify a usable installation.'}
     if not enabled:return {'installed':True,'enabled':False,'ready':False,'reason':'UMI Blender optimisation is not enabled in the active service. Re-deploy with the updated UMI installer.'}
-    return {'installed':True,'enabled':True,'ready':True,'reason':'Blender executable found and optimisation enabled','version':None}
+    return {'installed':True,'enabled':True,'ready':True,'reason':'Blender executable found and optimisation enabled','version':None,'gltf_transform':bool(gltf_cli())}
 
 def blender_error_details(run):
     """Retain the actual failure (especially a missing module), not Blender's exit banner."""
@@ -54,7 +60,17 @@ def blender_missing_module(run):
     match=re.search(r"(?:ModuleNotFoundError: No module named|UMI_BLENDER_MODULE_MISSING:)\s*['\"]?([A-Za-z0-9_.]+)", detail)
     return match.group(1) if match else None
 
-def optimized_glb(source,ratio=.65,texture=.5):
+def optimized_glb(source,ratio=.65,texture=.5,options=None):
+    from .mesh_options import validate_plan, PlanError
+    if options is None:
+        # Previous v0.2.16 calls retain their historical defaults.
+        options={'preset':'custom','geometry_ratio':ratio,'texture_scale':texture}
+    try:plan=validate_plan(options)
+    except PlanError as error:raise BlenderError(str(error),'INVALID_OPTIONS') from error
+    ratio=plan['geometry_ratio'];texture=plan['texture_scale']
+    cli=gltf_cli()
+    if (plan['geometry_codec']!='none' or plan['texture_format']!='original') and not cli:
+        raise BlenderError('Advanced texture/geometry codecs require the glTF Transform CLI on the server. Choose Original/None or install the CLI.','ADVANCED_CODEC_UNAVAILABLE')
     info=blender_status()
     if not info['ready']:
         raise BlenderError(info['reason'],'BLENDER_NOT_READY')
@@ -71,7 +87,7 @@ def optimized_glb(source,ratio=.65,texture=.5):
         result=Path(temp)/'optimised.glb'
         script=Path(__file__).with_name('blender_clean.py')
         try:
-            run=subprocess.run([binary,'--background','--factory-startup','--disable-autoexec','--python',str(script),'--',str(source),str(result),str(ratio),str(texture)],capture_output=True,timeout=115,check=False,env=blender_runtime_env())
+            run=subprocess.run([binary,'--background','--factory-startup','--disable-autoexec','--python',str(script),'--',str(source),str(result),str(ratio),str(texture),json.dumps(plan,separators=(',',':'))],capture_output=True,timeout=115,check=False,env=blender_runtime_env())
         except subprocess.TimeoutExpired as exc:raise BlenderError('Blender optimisation exceeded 115 seconds. Try a smaller model.','BLENDER_TIMEOUT') from exc
         except OSError as exc:raise BlenderError('Blender could not start under the UMI service account.','BLENDER_START_FAILED') from exc
         if run.returncode!=0 or not result.is_file():
@@ -80,6 +96,25 @@ def optimized_glb(source,ratio=.65,texture=.5):
                 raise BlenderError('Blender is missing Python module '+missing+'. Server deployment must repair this dependency.',
                                    'BLENDER_MODULE_MISSING',blender_error_details(run))
             raise BlenderError('Blender failed while reading, simplifying or exporting the GLB.','BLENDER_EXEC_FAILED',blender_error_details(run))
+        if plan['texture_format']!='original' or plan['geometry_codec']!='none':
+            current=result
+            passes=[]
+            fmt=plan['texture_format']
+            if fmt!='original':
+                cmd={'ktx2-etc1s':'etc1s','ktx2-uastc':'uastc'}.get(fmt,fmt)
+                # JPEG is color-only. Normal maps must remain lossless.
+                extra=['--slots','{baseColorTexture,emissiveTexture}'] if fmt in ('jpeg','webp') else []
+                passes.append((cmd,extra))
+            if plan['geometry_codec']!='none':passes.append((plan['geometry_codec'],[]))
+            for index,(command,extra) in enumerate(passes):
+                destination=Path(temp)/f'pass-{index}.glb'
+                try:
+                    run_cli=subprocess.run([cli,command,str(current),str(destination),*extra],capture_output=True,timeout=65,check=False,env=blender_runtime_env())
+                except subprocess.TimeoutExpired as error:raise BlenderError('glTF compression exceeded 65 seconds','CODEC_TIMEOUT') from error
+                if run_cli.returncode or not destination.is_file():
+                    raise BlenderError('glTF Transform could not apply '+command+'. Try a less aggressive setting.','CODEC_FAILED',blender_error_details(run_cli))
+                current=destination
+            result=current
         if result.stat().st_size>100*1024*1024:
             raise BlenderError('Optimised file exceeded the size limit','RESULT_TOO_LARGE')
         with result.open('rb') as stream:header=stream.read(4)

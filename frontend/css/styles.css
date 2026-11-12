@@ -212,3 +212,32 @@ body[data-theme=warm]{--bg:#29221e;--surface:#3e312a;--ink:#f3ebdf;--muted:#c3b5
 #boardWorld .picture img,#boardWorld model-viewer{
   -webkit-user-drag:none;user-drag:none;
 }
+
+/* v0.2.17 — one unobtrusive three-dot menu per 3D card */
+.mesh-card{position:absolute;overflow:visible}
+.mesh-card .mesh-more{position:absolute;right:5px;top:5px;z-index:4;border:1px solid #78968a66;background:#ffffffdc;border-radius:50%;width:27px;height:27px;display:grid;place-items:center;padding:0;font-size:18px;line-height:1;cursor:pointer}
+.mesh-card .mesh-menu{position:absolute;z-index:12;right:0;top:37px;min-width:145px;max-width:220px;padding:6px;background:#25372f;color:#e4f5e9;border:1px solid #729683;border-radius:10px;box-shadow:0 14px 38px #0009;display:flex;flex-direction:column;gap:2px}
+.mesh-card .mesh-menu[hidden]{display:none}
+.mesh-card .mesh-menu button,.mesh-card .mesh-menu a{width:100%;text-align:left;padding:8px 10px;border-radius:7px;background:transparent;color:inherit;font-size:12px;text-decoration:none}
+.mesh-card .mesh-menu button:hover,.mesh-card .mesh-menu a:hover{background:#557562}
+.mesh-card .mesh-size{line-height:1.45;color:#62736b;font-size:11px}
+.mesh-card.is-processing{border:1px solid #85d7b8;background:#edf6ef;animation:mesh-work-frame 2.7s linear infinite}
+.mesh-card.is-processing .mesh-spin{background:#edf5f0}
+.mesh-card.is-processing .mesh-spin span{font-size:38px;animation:mesh-cube-spin 2.4s ease-in-out infinite}
+@keyframes mesh-work-frame{0%,100%{box-shadow:0 0 0 2px #7cd4be44,0 14px 30px #0006}50%{box-shadow:0 0 0 3px #b7a8e966,0 14px 30px #0006}}
+.mesh-optimize-backdrop:not([hidden]){position:fixed;inset:0;z-index:150;background:#050b0aa9;display:grid;place-items:center;padding:18px;backdrop-filter:blur(6px)}
+.mesh-optimize-backdrop[hidden]{display:none}
+.mesh-optimize-dialog{width:min(425px,94vw);max-height:86vh;overflow:auto;padding:19px;background:#26352f;color:#e5efe9;border:1px solid #698a78;border-radius:18px;box-shadow:0 24px 65px #000b;display:flex;flex-direction:column;gap:12px}
+.mesh-optimize-head,.mesh-opt-footer{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.mesh-optimize-head strong{font-size:17px}.mesh-optimize-head button{font-size:22px}
+.mesh-opt-description{font-size:11px;line-height:1.45;color:#afc5b7;margin:0}
+.mesh-opt-tabs{display:flex;gap:5px;padding:3px;border-radius:11px;background:#111f18}.mesh-opt-tabs button{flex:1;padding:8px;font-size:12px;border-radius:8px;color:#abbfb1}.mesh-opt-tabs button[aria-selected=true]{background:#c5e3d0;color:#1b3023}
+.mesh-opt-panel{display:flex;flex-direction:column;gap:9px}.mesh-opt-panel[hidden]{display:none}
+.mesh-opt-panel>label{font-size:12px;display:flex;justify-content:space-between;align-items:center}
+.mesh-opt-panel select,.mesh-opt-panel input[type=number]{background:#152820;border:1px solid #668474;border-radius:9px;color:#e4f0e9;width:100%;padding:9px;font-size:12px}
+.mesh-opt-panel input[type=range]{width:100%;accent-color:#aee1c0}
+.mesh-opt-checks{display:grid;grid-template-columns:1fr 1fr;gap:9px}.mesh-opt-checks label{display:flex;gap:5px;align-items:center;font-size:11px}
+.mesh-opt-error{color:#ffb6b6;font-size:12px;white-space:pre-wrap;margin:0}
+.mesh-opt-footer button{padding:10px 15px;border-radius:10px;font-size:12px;border:1px solid #637c6c}
+.mesh-opt-footer #meshOptStart{background:#c4e5d1;color:#182c21;font-weight:650}
+

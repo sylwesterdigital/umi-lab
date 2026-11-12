@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#16191c">
-  <meta name="umi-version" content="0.2.16">
+  <meta name="umi-version" content="0.2.17">
   <title>UMI LAB — Object table</title>
   <link rel="stylesheet" href="/static/css/styles.css">
   <script defer src="/static/js/canvas-layouts.js"></script>
@@ -16,7 +16,7 @@
 <body>
   <main id="studio">
     <header class="topbar">
-      <div class="brand"><button id="homeButton" title="Return to the table" type="button">UMI LAB</button><button id="versionButton" title="Release notes" type="button">0.2.16</button></div>
+      <div class="brand"><button id="homeButton" title="Return to the table" type="button">UMI LAB</button><button id="versionButton" title="Release notes" type="button">0.2.17</button></div>
       <div class="top-controls"><button id="workspaceButton" type="button" title="Workspace, models and projects">Workspace <span aria-hidden="true">⌄</span></button><button id="profileButton" type="button" title="Profile"><span id="profileInitial">○</span><img id="profileImage" alt="" hidden></button></div>
     </header>
 
@@ -43,6 +43,28 @@
     <div id="selectionBar" class="selection-bar" hidden role="toolbar" aria-label="Selected photos"><span id="selectionCount">0 selected</span><input id="newSelectionPackName" placeholder="New pack name" maxlength="75" aria-label="New pack name"><select id="selectionPack" aria-label="Move selected photos to pack"><option value="">New pack</option></select><button id="selectionToPack" type="button">To pack</button><button id="selectionCopy" type="button">Copy</button><button id="selectionGrab" type="button" title="Grab and move selected photos · G" aria-pressed="false">G · Move</button><button id="selectionRemove" type="button">Remove</button><button id="selectionClear" type="button" title="Clear selection">×</button></div>
     <div id="videoStage" class="mesh-stage" hidden role="dialog" aria-label="Video preview"><div class="mesh-stage-heading"><span id="videoStageTitle">Video</span><button id="videoStageClose" type="button" aria-label="Close video">×</button></div><video id="videoStagePlayer" playsinline controls preload="metadata" style="flex:1;min-height:0;width:100%;object-fit:contain;background:#0a0e0e"></video></div>
     <div id="meshStage" class="mesh-stage" hidden role="dialog" aria-label="3D model preview"><div class="mesh-stage-heading"><span id="meshStageTitle">3D model</span><button id="meshStageScene" type="button" title="Place the model behind the photo canvas">Scene</button><button id="meshStageDownload" type="button">Download</button><button id="meshStageClose" type="button" aria-label="Close viewer">×</button></div><model-viewer id="meshStageViewer" camera-controls auto-rotate shadow-intensity="1" exposure="1" interaction-prompt="none" alt="Generated 3D model"></model-viewer><p id="meshStageHint">Drag to rotate · scroll to zoom</p></div>
+    <div id="meshOptimizeModal" class="mesh-optimize-backdrop" hidden role="dialog" aria-modal="true" aria-label="Optimise 3D model">
+      <section class="mesh-optimize-dialog">
+        <div class="mesh-optimize-head"><strong>Optimise 3D model</strong><button id="meshOptClose" type="button" title="Close">×</button></div>
+        <p id="meshOptInfo" class="mesh-opt-description">Source model · original preserved</p>
+        <div class="mesh-opt-tabs" role="tablist"><button id="meshOptPresetsTab" role="tab" aria-selected="true" type="button">Presets</button><button id="meshOptCustomTab" role="tab" aria-selected="false" type="button">Advanced</button></div>
+        <div id="meshOptPresetPanel" class="mesh-opt-panel">
+          <label for="meshOptPreset">Output quality</label><select id="meshOptPreset"><option value="quality">Good quality · larger file</option><option value="balanced" selected>Balanced · medium</option><option value="small">Small · compact</option><option value="ultra">Ultra · maximum reduction</option></select>
+          <p class="mesh-opt-description">Quality affects geometry density and texture resolution. Actual savings are shown after processing; the original file is preserved.</p>
+        </div>
+        <div id="meshOptCustomPanel" class="mesh-opt-panel" hidden>
+          <label for="meshOptGeometry">Mesh · triangles retained <output id="meshOptGeometryValue">80%</output></label><input id="meshOptGeometry" type="range" min="15" max="100" step="5" value="80">
+          <label for="meshOptTexture">Materials · texture dimensions <output id="meshOptTextureValue">75%</output></label><input id="meshOptTexture" type="range" min="25" max="100" step="5" value="75">
+          <div class="mesh-opt-checks"><label><input type="checkbox" id="meshOptDeleteLoose" checked> Delete loose edges/vertices</label><label><input type="checkbox" id="meshOptRecalculate"> Recalculate normals</label><label><input type="checkbox" id="meshOptSmooth"> Smooth faces</label><label><input type="checkbox" id="meshOptWeighted"> Weighted normals</label><label><input type="checkbox" id="meshOptSmoothEdges"> Smooth edges</label></div>
+          <label for="meshOptMerge">Merge by distance (model units)</label><input type="number" id="meshOptMerge" min="0" max="0.01" step="0.0001" value="0" inputmode="decimal">
+          <label for="meshOptTextureFormat">Texture encoding</label><select id="meshOptTextureFormat"><option value="original">Original (GLB compatible)</option><option value="webp">WebP · color</option><option value="jpeg">JPEG · color</option><option value="png">PNG</option><option value="ktx2-etc1s">KTX2 · ETC1S</option><option value="ktx2-uastc">KTX2 · UASTC</option></select>
+          <label for="meshOptCodec">Geometry compression</label><select id="meshOptCodec"><option value="none">None · compatible</option><option value="draco">Draco</option><option value="meshopt">Meshopt</option></select>
+          <p id="meshOptCodecNote" class="mesh-opt-description">Advanced encodings require glTF Transform and runtime decoder support.</p>
+        </div>
+        <p id="meshOptError" class="mesh-opt-error" role="alert" hidden></p>
+        <div class="mesh-opt-footer"><button id="meshOptCancel" type="button">Cancel</button><button id="meshOptStart" type="button">Optimise</button></div>
+      </section>
+    </div>
     <div id="photoContext" class="photo-context" hidden role="menu" aria-label="Photo actions">
       <button type="button" data-photo-action="media-tools" hidden>Media tools</button><button type="button" data-photo-action="share">Share</button><button type="button" data-photo-action="make-main">Make main</button><button type="button" data-photo-action="analyze">Analyze visible objects</button><button type="button" data-photo-action="describe">Describe / ask AI</button><button type="button" data-photo-action="documents">Documents &amp; history</button><button type="button" data-photo-action="image">Generate / edit image</button><button type="button" data-photo-action="3d">Generate 3D</button><button type="button" data-photo-action="video-preview" hidden>Play video</button><button type="button" data-photo-action="video">Video storyboard plan</button><button type="button" data-photo-action="avatar">Avatar / rig plan</button><button type="button" data-photo-action="persona">Fictional persona concept</button><button type="button" data-photo-action="copy">Copy</button><button type="button" data-photo-action="pack">Move to pack</button><button type="button" data-photo-action="archive">Archive</button>
     </div>
