@@ -14,11 +14,11 @@ class FolderBatch0212(unittest.TestCase):
         self.assertIn("if(pack.id!==focus&&(pack.parentId||null)!==focus)continue",self.js)
         self.assertIn("function packContains(packId,ancestorId)",self.js)
         self.assertIn("const hasPhoto=visibleNodes().length>0||!!focusedPack()",self.js)
-        self.assertIn("state.openPack=pack.id;fitPackView(pack.id)",self.js)
+        self.assertIn("state.openPack=was===pack.id?(pack.parentId||null):pack.id",self.js)
 
     def test_folder_hold_is_temporary(self):
         self.assertIn("state.peekPack=pack.id;drawPictures();renderPackShelf()",self.js)
-        self.assertIn("state.peekPack=null;state.pan=press.pan;state.zoom=press.zoom",self.js)
+        self.assertIn("state.peekPack=null;drawPictures();renderPackShelf()",self.js)
         self.assertIn("document.addEventListener('pointerup',cancelPackPreview,true)",self.js)
 
     def test_generated_angles_are_reused_for_matching_source(self):

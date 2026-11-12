@@ -1,3 +1,9 @@
+## v0.2.13 — Stable folder view and pointer add menu
+
+- Shift+A positions the Add menu at the mouse pointer, right edge aligned to cursor, clamped to the viewport.
+- Opening, closing, and press-and-hold previewing an envelope never change the current canvas pan or zoom.
+- Preserves existing photos, envelopes, generation queues, SQLite data, and watcher configuration.
+
 ## v0.2.12 — Folder focus and safe generation
 - Keep the selected envelope visible while showing its contents. Click to open/close; hold to peek and release to restore the prior canvas.
 - Reuse completed angles from the same source image; generate only missing views.
