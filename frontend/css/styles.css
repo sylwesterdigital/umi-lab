@@ -115,3 +115,24 @@ body[data-theme=warm]{--bg:#29221e;--surface:#3e312a;--ink:#f3ebdf;--muted:#c3b5
 .picture.is-refining .refine-badge{position:absolute;z-index:7;left:0;bottom:25px;padding:5px 8px;border-radius:7px;background:#172722e8;border:1px solid #9be7b67d;color:#d8ffe5;font-size:11px;box-shadow:0 4px 14px #0006;pointer-events:none}
 @keyframes umi-refine-ring{0%{outline-color:#64e5bd;box-shadow:0 0 0 3px #48d9e53a}33%{outline-color:#bb8aef;box-shadow:0 0 0 3px #bf79f13a}67%{outline-color:#e79dbb;box-shadow:0 0 0 3px #e79dbb3a}100%{outline-color:#64e5bd;box-shadow:0 0 0 3px #48d9e53a}}
 @media(prefers-reduced-motion:reduce){.picture.is-refining .picture-inner{animation:none}}
+
+/* v0.2.9 · Media and editable paper cards */
+.canvas-note{position:absolute;z-index:6;width:350px;height:310px;transform:translate(-50%,-50%);display:flex;flex-direction:column;padding:0;border-radius:4px;border:1px solid #dadad4;box-shadow:0 14px 32px #0006;overflow:hidden;color:#111;background:#fff;cursor:default}
+.canvas-note.selected{outline:4px solid #78f6a4;outline-offset:6px;box-shadow:0 0 0 2px #133b2b,0 0 22px #63ef9880,0 14px 32px #0006}
+.note-heading{padding:5px 6px;display:flex;align-items:center;gap:5px;background:#0000000b;min-height:34px;cursor:grab}
+.note-heading:active{cursor:grabbing}.note-heading .note-title{font-size:12px;font-weight:650;background:transparent;color:inherit;border:0;min-width:35px;flex:1;max-width:120px;padding:3px}
+.note-controls{display:flex;gap:2px;align-items:center}.note-controls button{border-radius:5px;background:#0000000b;padding:3px 7px;font-size:14px;color:inherit}
+.note-controls select{width:68px;font-size:10px;padding:3px;background:#ffffff;color:#161616;border:1px solid #c4c4c4;border-radius:4px}
+.note-controls input[type=color]{height:22px;width:23px;padding:0;border:0;border-radius:5px;background:none;cursor:pointer}
+.note-editor{display:block;flex:1;min-height:0;min-width:0;resize:none;padding:15px 18px;border:0;outline:none!important;line-height:1.55;white-space:pre-wrap;overflow:auto;tab-size:4}
+.note-editor:focus{box-shadow:inset 0 0 0 1px #91bea0}
+.file-card-symbol{display:grid;place-items:center;color:#59726b!important;background:linear-gradient(145deg,#fcfcfa,#e5eee8);height:150px;width:100%;font-size:24px;font-weight:700;letter-spacing:.12em}
+.picture audio{display:block;width:100%;max-width:260px;height:50px;margin:50px auto;background:#f5f6f3}
+.picture video{pointer-events:auto}.picture .picture-inner audio,.picture .picture-inner video{touch-action:auto}
+.source-grid audio{max-width:100%;height:58px;background:#e9f1ed}
+.media-stage-body{flex:1;min-height:0;min-width:0;display:flex;align-items:center;justify-content:center;background:#0a1110;border-radius:12px;overflow:auto}
+.media-stage-body iframe,.media-stage-body video{height:100%;width:100%;border:0;object-fit:contain}
+.media-stage-body audio{width:min(620px,95%)}.media-stage-body img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+.media-download,.mesh-stage-heading a{font-size:12px;border:1px solid #78958a76;border-radius:8px;padding:7px 10px;text-decoration:none;color:#c1e9d4}
+#newNoteButton{font-size:12px;letter-spacing:.01em;color:#cde2d6;border:1px solid #71877966;border-radius:9px;padding:6px 8px}
+@media(max-width:700px){#newNoteButton{font-size:10px;padding:6px 5px}.canvas-note{width:330px}}

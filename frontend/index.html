@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#16191c">
-  <meta name="umi-version" content="0.2.8">
+  <meta name="umi-version" content="0.2.9">
   <title>UMI LAB — Object table</title>
   <link rel="stylesheet" href="/static/css/styles.css">
   <script defer src="/static/js/canvas-layouts.js"></script>
@@ -15,7 +15,7 @@
 <body>
   <main id="studio">
     <header class="topbar">
-      <div class="brand"><button id="homeButton" title="Return to the table" type="button">UMI LAB</button><button id="versionButton" title="Release notes" type="button">0.2.8</button></div>
+      <div class="brand"><button id="homeButton" title="Return to the table" type="button">UMI LAB</button><button id="versionButton" title="Release notes" type="button">0.2.9</button></div>
       <div class="top-controls"><button id="workspaceButton" type="button" title="Workspace, models and projects">Workspace <span aria-hidden="true">⌄</span></button><button id="profileButton" type="button" title="Profile"><span id="profileInitial">○</span><img id="profileImage" alt="" hidden></button></div>
     </header>
 
@@ -46,6 +46,10 @@
       <button type="button" data-photo-action="make-main">Make main</button><button type="button" data-photo-action="analyze">Analyze visible objects</button><button type="button" data-photo-action="describe">Describe / ask AI</button><button type="button" data-photo-action="documents">Documents &amp; history</button><button type="button" data-photo-action="image">Generate / edit image</button><button type="button" data-photo-action="3d">Generate 3D</button><button type="button" data-photo-action="video-preview" hidden>Play video</button><button type="button" data-photo-action="video">Video storyboard plan</button><button type="button" data-photo-action="avatar">Avatar / rig plan</button><button type="button" data-photo-action="persona">Fictional persona concept</button><button type="button" data-photo-action="copy">Copy</button><button type="button" data-photo-action="pack">Move to pack</button><button type="button" data-photo-action="archive">Archive</button>
     </div>
     <div id="photoComposer" class="photo-composer" hidden role="dialog" aria-label="AI action for selected photo"><div class="composer-top"><strong id="composerTitle">Ask AI</strong><button id="composerClose" type="button" title="Close">×</button></div><div id="composerSource" class="quiet"></div><textarea id="composerPrompt" rows="4" maxlength="3000" placeholder="What should happen to this photo?"></textarea><div class="composer-row"><select id="composerProvider" aria-label="AI model"></select><button id="composerSend" type="button">Run ↗</button></div><div id="composerResult" class="composer-result" role="status" aria-live="polite" hidden></div></div>
+    <div id="mediaStage" class="mesh-stage" hidden role="dialog" aria-label="Media preview">
+      <div class="mesh-stage-heading"><span id="mediaStageTitle">Media preview</span><a id="mediaStageDownload" download class="media-download" href="#">Open / download</a><a id="mediaStageText" href="#" hidden>Extracted TXT</a><button id="mediaStageClose" type="button" aria-label="Close preview">×</button></div>
+      <div id="mediaStageBody" class="media-stage-body"></div>
+    </div>
     <div id="historyBar" class="history-bar"><button id="historyUndo" type="button" title="Undo · Cmd/Ctrl+Z" disabled>↶</button><button id="historyRedo" type="button" title="Redo · Cmd/Ctrl+Shift+Z" disabled>↷</button><span id="historyLabel">History</span></div>
     <button id="canvasTrash" class="canvas-trash" type="button" hidden title="Archive photos or packs by dropping here; images remain in the library" aria-label="Trash — archive photos or packs">⌫<small>Archive</small></button>
     <div id="arrangeTools" class="arrange-tools" hidden>
@@ -61,12 +65,12 @@
     <div id="queueRest" class="queue-rest" hidden><span id="queueRestText"></span><button id="resumeQueue" type="button">Resume</button><button id="retryFailed" type="button" hidden>Retry failed</button></div>
 
     <form id="promptForm" class="prompt-card">
-      <button id="uploadButton" type="button" title="Add an image" aria-label="Add image">＋</button>
+      <button id="uploadButton" type="button" title="Import media" aria-label="Import media">＋</button><button id="newNoteButton" type="button" title="Add editable text document">Text</button>
       <label class="sr-only" for="promptInput">Describe an object or scene</label>
       <textarea id="promptInput" rows="1" placeholder="Imagine anything…" maxlength="6000" required></textarea>
       <select id="imageProvider" aria-label="Image model"><option value="">Choose model</option></select>
       <button id="promptSubmit" class="create-button" type="submit">Generate <span aria-hidden="true">↗</span></button>
-      <input id="uploadInput" type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm" hidden>
+      <input id="uploadInput" type="file" accept=".png,.jpg,.jpeg,.webp,.gif,.svg,.pdf,.mp3,.wav,.ogg,.m4a,.flac,.mp4,.mov,.m4v,.webm,image/*,audio/*,video/*,application/pdf" hidden>
     </form>
 
     <div id="jobStatus" class="job-status" hidden role="status" aria-live="polite"><span class="job-orb" aria-hidden="true"></span><div class="job-body"><strong id="jobTitle">Generating</strong><span id="jobDetail">Connecting to image model…</span><div class="job-track"><span id="jobProgress"></span></div></div><span id="jobTimer">00:00</span><label class="follow-toggle"><input id="followMode" type="checkbox" checked> Follow</label><button id="stopJob" type="button" title="Pause after this image">Pause</button></div>

@@ -96,6 +96,41 @@ class FlaskTest(unittest.TestCase):
         with zipfile.ZipFile(io.BytesIO(r.data)) as archive:
             self.assertIn('manifest.json',archive.namelist())
             self.assertIn('bom.csv',archive.namelist())
+    def test_pdf_svg_gif_and_audio_assets_with_owned_text(self):
+        from unittest.mock import patch
+        from pypdf import PdfWriter
+        pid=self.post('/api/projects',{'name':'Media table','kind':'object'}).json['id']
+        writer=PdfWriter();writer.add_blank_page(width=300,height=300);stream=io.BytesIO();writer.write(stream);stream.seek(0)
+        with patch.object(self.module,'pdf_text',return_value='PDF text extract\nSecond line'),patch.object(self.module,'pdf_thumbnail',return_value=None):
+            pdf=self.client.post('/api/assets/upload',data={'project_id':pid,'image':(stream,'brochure.pdf')},headers={'X-CSRF-Token':self.csrf},content_type='multipart/form-data')
+        self.assertEqual(pdf.status_code,201,pdf.json)
+        aid=pdf.json['id'];self.assertEqual(pdf.json['view'],'document')
+        self.assertEqual(self.client.get(f'/api/media/{aid}/text').data.decode(),'PDF text extract\nSecond line')
+        self.assertEqual(self.client.get(f'/api/media/{aid}').headers.get('X-Frame-Options'),'SAMEORIGIN')
+        docs=self.client.get(f'/api/projects/{pid}/assets/{aid}/documents').json['documents']
+        self.assertEqual(docs[0]['kind'],'pdf_text')
+        self.assertIn('PDF text extract',docs[0]['content'])
+        svg=io.BytesIO(b'<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="50" height="50" fill="red"/></svg>')
+        vector=self.client.post('/api/assets/upload',data={'project_id':pid,'image':(svg,'icon.svg')},headers={'X-CSRF-Token':self.csrf},content_type='multipart/form-data')
+        self.assertEqual(vector.status_code,201,vector.json)
+        self.assertEqual(self.client.get('/api/media/'+vector.json['id']).mimetype,'image/svg+xml')
+        bad=io.BytesIO(b'<svg onload="alert(1)"></svg>')
+        unsafe=self.client.post('/api/assets/upload',data={'project_id':pid,'image':(bad,'bad.svg')},headers={'X-CSRF-Token':self.csrf},content_type='multipart/form-data')
+        self.assertEqual(unsafe.status_code,400)
+        buf=io.BytesIO();Image.new('RGB',(40,35),'green').save(buf,'GIF');buf.seek(0)
+        gif=self.client.post('/api/assets/upload',data={'project_id':pid,'image':(buf,'motion.gif')},headers={'X-CSRF-Token':self.csrf},content_type='multipart/form-data')
+        self.assertEqual(gif.status_code,201,gif.json)
+        self.assertEqual(self.client.get('/api/media/'+gif.json['id']).mimetype,'image/gif')
+        with patch.object(self.module,'transcode',return_value=('audio/mpeg','mp3',b'FAKE-ENCODED-AUDIO')):
+            audio=self.client.post('/api/assets/upload',data={'project_id':pid,'image':(io.BytesIO(b'INPUT'),'voice.wav')},headers={'X-CSRF-Token':self.csrf},content_type='multipart/form-data')
+        self.assertEqual(audio.status_code,201,audio.json)
+        self.assertEqual(audio.json['mime'],'audio/mpeg')
+        settings={'tabletop':{'hero':None,'nodes':[{'id':'note-1','kind':'note','label':'Draft','content':'Long note\nSecond line','x':8,'y':11,'size':19,'color':'#101010','background':'#ffffff'}],'packs':[]}}
+        updated=self.client.patch(f'/api/projects/{pid}',json={'settings':settings},headers={'X-CSRF-Token':self.csrf})
+        self.assertEqual(updated.status_code,200,updated.json)
+        loaded=self.client.get(f'/api/projects/{pid}').json['project']['settings']['tabletop']['nodes'][0]
+        self.assertEqual(loaded['content'],'Long note\nSecond line')
+        self.assertEqual(loaded['size'],19)
     def test_upload_and_authenticated_asset(self):
         pid=self.post('/api/projects',{'name':'Car'}).json['id']
         image=Image.new('RGB',(60,40),'red');out=io.BytesIO();image.save(out,'PNG');out.seek(0)

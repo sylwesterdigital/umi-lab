@@ -24,6 +24,7 @@ from .providers import PRESETS, BY_ID, ProviderError, chat as provider_chat, gen
 from .meta_sam import segment_image
 from .mesh_preview import preview_blob, preview_is_ready
 from .scene_analysis import analyze as analyze_visual_scene, visual_question
+from .media_tools import MEDIA_TYPES, MAX_UPLOAD, MediaError, media_type, clean_svg, validate_gif, pdf_text, pdf_thumbnail, transcode
 
 ROOT=Path(__file__).resolve().parent.parent
 # Release metadata is the single source of truth for every API/version export.
@@ -47,7 +48,7 @@ def persistent_key(filename, env_name, generator):
 SESSION_KEY=persistent_key('.session-key','UMI_SESSION_KEY',lambda:secrets.token_urlsafe(48).encode())
 CRYPT=Fernet(persistent_key('.fernet-key','UMI_FERNET_KEY',Fernet.generate_key))
 app=Flask(__name__,static_folder=str(ROOT/'frontend'),static_url_path='/static')
-app.config.update(SECRET_KEY=SESSION_KEY,MAX_CONTENT_LENGTH=23*1024*1024,
+app.config.update(SECRET_KEY=SESSION_KEY,MAX_CONTENT_LENGTH=26*1024*1024,
                   SESSION_COOKIE_HTTPONLY=True,SESSION_COOKIE_SAMESITE='Strict',
                   SESSION_COOKIE_SECURE=os.environ.get('UMI_HTTPS','0')=='1',
                   PERMANENT_SESSION_LIFETIME=60*60*24*14)
@@ -100,11 +101,18 @@ BAD_LOGINS={}
 def security(resp):
     resp.headers['X-Content-Type-Options']='nosniff'
     resp.headers['Referrer-Policy']='same-origin'
-    resp.headers['X-Frame-Options']='DENY'
     resp.headers['Cache-Control']='no-store' if request.path.startswith('/api/') else 'no-cache'
-    resp.headers['Content-Security-Policy']=("default-src 'self'; img-src 'self' data: blob:; "
-        "script-src 'self' https://cdn.jsdelivr.net 'sha256-V5W/S/ezCmFEoq8zylsgcbGgPNc2njwXvX8NL5xHP7g='; style-src 'self' 'unsafe-inline'; "
-        "connect-src 'self' blob: https://cdn.jsdelivr.net; font-src 'self' blob: data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
+    if request.endpoint=='media' and resp.mimetype=='application/pdf':
+        resp.headers['X-Frame-Options']='SAMEORIGIN'
+        resp.headers['Content-Security-Policy']="default-src 'none'; frame-ancestors 'self'; sandbox allow-same-origin"
+    elif request.endpoint=='media' and resp.mimetype=='image/svg+xml':
+        resp.headers['X-Frame-Options']='DENY'
+        resp.headers['Content-Security-Policy']="default-src 'none'; style-src 'unsafe-inline'; sandbox"
+    else:
+        resp.headers['X-Frame-Options']='DENY'
+        resp.headers['Content-Security-Policy']=("default-src 'self'; img-src 'self' data: blob:; "
+            "script-src 'self' https://cdn.jsdelivr.net 'sha256-V5W/S/ezCmFEoq8zylsgcbGgPNc2njwXvX8NL5xHP7g='; style-src 'self' 'unsafe-inline'; "
+            "connect-src 'self' blob: https://cdn.jsdelivr.net; font-src 'self' blob: data:; frame-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
     return resp
 
 @app.before_request
@@ -120,7 +128,7 @@ def guard_writes():
             abort(403,'Invalid CSRF token')
 
 @app.errorhandler(413)
-def too_large(e):return jsonify(error='Image exceeds 12 MB'),413
+def too_large(e):return jsonify(error='File exceeds upload limit'),413
 
 @app.errorhandler(400)
 def bad_request(e):return jsonify(error=str(e.description if hasattr(e,'description') else e)),400
@@ -436,7 +444,7 @@ def project_detail(pid):
             if kind not in ('car','motorcycle','aircraft','boat','drone','robot','other','person','room','product','machine','object'):return jsonify(error='Invalid scene type'),400
             settings=body.get('settings',json.loads(row['settings']))
             if not isinstance(settings,dict):return jsonify(error='Invalid settings'),400
-            if len(json.dumps(settings))>300000:return jsonify(error='Settings too large'),400
+            if len(json.dumps(settings))>1100000:return jsonify(error='Canvas documents exceed project storage limit'),400
             selected=body.get('selected_asset',row['selected_asset'])
             if selected and not conn.execute('SELECT 1 FROM assets WHERE id=? AND project_id=?',(selected,pid)).fetchone():
                 return jsonify(error='Unknown asset'),400
@@ -445,7 +453,11 @@ def project_detail(pid):
             row=store.project_for(conn,session['uid'],pid)
         assets=[dict(r) for r in conn.execute('SELECT id,view,source,mime,created_at FROM assets WHERE project_id=? ORDER BY created_at DESC',(pid,))]
         messages=[dict(r) for r in conn.execute('SELECT role,content,provider,created_at FROM messages WHERE project_id=? ORDER BY rowid ASC LIMIT 80',(pid,))]
-    for asset in assets:asset['url']='/api/media/'+asset['id']
+    for asset in assets:
+        asset['url']='/api/media/'+asset['id']
+        if asset['mime']=='application/pdf' and (MEDIA/(asset['id']+'.preview.png')).is_file():
+            asset['thumb_url']='/api/media/'+asset['id']+'/thumbnail'
+        if asset['mime']=='application/pdf':asset['text_url']='/api/media/'+asset['id']+'/text'
     return jsonify(project=store.serialize_project(row),assets=assets,messages=messages)
 
 @app.post('/api/projects/<pid>/analyze')
@@ -664,32 +676,52 @@ def save_asset(conn,pid,image_bytes,mime,view,source):
 @authenticated
 def upload():
     pid=str(request.form.get('project_id',''))
-    image=request.files.get('image')
-    if not image:return jsonify(error='Choose an image or a short video'),400
-    allowed={'image/jpeg','image/png','image/webp','video/mp4','video/webm'}
-    if image.mimetype not in allowed:return jsonify(error='Only JPG, PNG, WebP, MP4 and WebM supported'),400
-    content=image.read(21*1024*1024)
+    file=request.files.get('image') or request.files.get('file')
+    if not file:return jsonify(error='Choose a media file'),400
+    try:mime=media_type(file.filename,file.mimetype or '')
+    except MediaError as exc:return jsonify(error=str(exc)),400
+    blob=file.read(MAX_UPLOAD+1)
+    if not blob or len(blob)>MAX_UPLOAD:return jsonify(error='File exceeds 22 MB'),400
     with store.connect(DATA) as conn:
         if not store.project_for(conn,session['uid'],pid):abort(404)
-        if image.mimetype.startswith('video/'):
-            if len(content)>20*1024*1024:return jsonify(error='Video exceeds 20 MB'),400
-            if image.mimetype=='video/mp4' and not (len(content)>12 and content[4:8]==b'ftyp'):
-                return jsonify(error='Invalid MP4 file'),400
-            if image.mimetype=='video/webm' and not content.startswith(bytes.fromhex('1a45dfa3')):
-                return jsonify(error='Invalid WebM file'),400
-            aid=store.new_id();ext='mp4' if image.mimetype=='video/mp4' else 'webm'
-            file=MEDIA/(aid+'.'+ext)
-            with file.open('xb') as output:output.write(content)
-            os.chmod(file,0o600)
-            conn.execute('INSERT INTO assets VALUES(?,?,?,?,?,?,?)',
-                         (aid,pid,file.name,image.mimetype,'video','upload',int(time.time())))
-            conn.commit()
-            view='video'
-        else:
-            aid,err=save_asset(conn,pid,content,image.mimetype,'reference','upload')
+        if mime in ('image/jpeg','image/png','image/webp'):
+            aid,err=save_asset(conn,pid,blob,mime,'reference','upload')
             if err:return jsonify(error=err),400
-            view='reference'
-    return jsonify(id=aid,url='/api/media/'+aid,view=view),201
+            view='reference';actual_mime=mime;thumb=None
+        else:
+            try:
+                extracted='';thumb=None
+                if mime=='image/gif':
+                    blob=validate_gif(blob);ext='gif';view='animation'
+                elif mime=='image/svg+xml':
+                    blob=clean_svg(blob);ext='svg';view='vector'
+                elif mime=='application/pdf':
+                    extracted=pdf_text(blob);thumb=pdf_thumbnail(blob);ext='pdf';view='document'
+                elif mime.startswith(('video/','audio/')):
+                    mime,ext,blob=transcode(blob,mime);view='video' if mime.startswith('video/') else 'audio'
+                else:raise MediaError('Unsupported media')
+            except MediaError as exc:return jsonify(error=str(exc)),400
+            aid=store.new_id();actual_mime=mime
+            location=MEDIA/(aid+'.'+ext)
+            with location.open('xb') as output:output.write(blob)
+            os.chmod(location,0o600)
+            if thumb:
+                cover=MEDIA/(aid+'.preview.png')
+                with cover.open('xb') as out:out.write(thumb)
+                os.chmod(cover,0o600)
+            if extracted:
+                text_file=MEDIA/(aid+'.txt')
+                with text_file.open('x',encoding='utf-8') as dest:dest.write(extracted)
+                os.chmod(text_file,0o600)
+            conn.execute('INSERT INTO assets VALUES(?,?,?,?,?,?,?)',
+                         (aid,pid,location.name,mime,view,'upload',int(time.time())))
+            conn.commit()
+            if mime=='application/pdf' and extracted:
+                save_asset_document(conn,pid,aid,'pdf_text','local','pypdf','Extracted selectable text',extracted)
+        result={'id':aid,'url':'/api/media/'+aid,'view':view,'mime':actual_mime}
+        if thumb:result['thumb_url']='/api/media/'+aid+'/thumbnail'
+        if actual_mime=='application/pdf':result['text_url']='/api/media/'+aid+'/text'
+    return jsonify(result),201
 
 @app.post('/api/assets/region')
 @authenticated
@@ -774,6 +806,28 @@ def create_region_asset():
     return jsonify(id=saved_id,url='/api/media/'+saved_id,view=view,operation=operation,
                    bounds_px=[left,top,right,bottom],elapsed_ms=elapsed_ms)
 
+@app.get('/api/media/<asset_id>/thumbnail')
+@authenticated
+def media_thumbnail(asset_id):
+    with store.connect(DATA) as conn:
+        row=conn.execute('SELECT a.mime FROM assets a JOIN projects p ON p.id=a.project_id WHERE a.id=? AND p.user_id=?',
+                         (asset_id,session['uid'])).fetchone()
+    if not row or row['mime']!='application/pdf':abort(404)
+    file=MEDIA/(asset_id+'.preview.png')
+    if not file.is_file():abort(404)
+    return send_file(file,mimetype='image/png')
+
+@app.get('/api/media/<asset_id>/text')
+@authenticated
+def media_text(asset_id):
+    with store.connect(DATA) as conn:
+        row=conn.execute('SELECT a.mime FROM assets a JOIN projects p ON p.id=a.project_id WHERE a.id=? AND p.user_id=?',
+                         (asset_id,session['uid'])).fetchone()
+    if not row or row['mime']!='application/pdf':abort(404)
+    file=MEDIA/(asset_id+'.txt')
+    if not file.is_file():abort(404)
+    return send_file(file,mimetype='text/plain; charset=utf-8',as_attachment=True,download_name='document-'+asset_id[:8]+'.txt')
+
 @app.get('/api/media/<asset_id>')
 @authenticated
 def media(asset_id):
@@ -781,7 +835,13 @@ def media(asset_id):
         row=conn.execute('''SELECT a.filename,a.mime FROM assets a JOIN projects p ON p.id=a.project_id
          WHERE a.id=? AND p.user_id=?''',(asset_id,session['uid'])).fetchone()
     if not row:abort(404)
-    return send_from_directory(str(MEDIA),row['filename'],mimetype=row['mime'],max_age=0)
+    response=send_from_directory(str(MEDIA),row['filename'],mimetype=row['mime'],max_age=0)
+    if row['mime']=='application/pdf':
+        response.headers['X-Frame-Options']='SAMEORIGIN'
+        response.headers['Content-Security-Policy']="default-src 'none'; frame-ancestors 'self'; sandbox allow-same-origin"
+    elif row['mime']=='image/svg+xml':
+        response.headers['Content-Security-Policy']="default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox"
+    return response
 
 VIEWS={
     'front':'front elevation, straight-on orthographic view',
@@ -1227,6 +1287,10 @@ def export(pid):
         for a in assets:
             filename=a['filename']
             if (MEDIA/filename).is_file():z.write(MEDIA/filename,'references/'+filename)
+            if a['mime']=='application/pdf':
+                token=Path(filename).stem
+                if (MEDIA/(token+'.txt')).is_file():z.write(MEDIA/(token+'.txt'),'documents/'+token+'.txt')
+                if (MEDIA/(token+'.preview.png')).is_file():z.write(MEDIA/(token+'.preview.png'),'references/'+token+'.preview.png')
     stream.seek(0)
     return send_file(stream,mimetype='application/zip',as_attachment=True,download_name='UMI_LAB_'+pid[:8]+'_CONCEPT.zip')
 

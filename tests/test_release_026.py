@@ -10,8 +10,8 @@ ROOT=Path(__file__).resolve().parent.parent
 class Canvas026Contract(unittest.TestCase):
     def test_release_versions_and_script_syntax_contract(self):
         version=json.loads((ROOT/'version.json').read_text())['version']
-        self.assertEqual(version,'0.2.8')
-        self.assertIn('content="0.2.8"',(ROOT/'frontend/index.html').read_text())
+        self.assertEqual(version,'0.2.9')
+        self.assertIn('content="0.2.9"',(ROOT/'frontend/index.html').read_text())
 
     def test_envelopes_are_in_scaled_canvas_and_position_worldwise(self):
         html=(ROOT/'frontend/index.html').read_text()
@@ -57,7 +57,8 @@ class Canvas026Contract(unittest.TestCase):
         js=(ROOT/'frontend/js/app.js').read_text()
         api=(ROOT/'backend/app.py').read_text()
         self.assertIn('id="videoStagePlayer"',html)
-        self.assertIn('video/mp4,video/webm',html)
+        self.assertIn('.pdf,.mp3',html)
+        self.assertIn('video/mp4',(ROOT/'backend/media_tools.py').read_text())
         self.assertIn('function openVideoPreview(',js)
         self.assertIn('if not asset[\'mime\'].startswith(\'image/\'):',api)
         self.assertIn("@authenticated\ndef media(",api)

@@ -1,5 +1,12 @@
 # UMI LAB changelog
 
+## 0.2.9
+- Standard click selection, Shift-click multi-select, blank-canvas deselection, and dragging selected groups.
+- Editable document cards on the endless canvas: ink and paper colours, five font families, text size and scrollable content. Positions and edits are saved with SQLite-backed canvas history.
+- Media import: SVG and animated GIF, PDF preview with TXT extraction, audio and video conversion via FFmpeg, and full-size media viewer.
+- Server-side media validation, project ownership checks, upload limits, original-file export and PDF text export.
+
+
 ## 0.2.8
 - Fixed CSP connect-src to include blob: for 3D GLB embedded textures (retaining same-origin and jsDelivr policy).
 - Visible refinement progress on the exact source photo, with elapsed time and preserved original.
