@@ -316,21 +316,55 @@ def _blender_sample_glb():
             struct.pack('<I4s',len(doc),b'JSON')+doc+
             struct.pack('<I4s',len(binary),b'BIN\x00')+binary)
 
+def _blender_smoke_env():
+    """Launch Blender without leaking the Flask venv's Python paths into bpy."""
+    result=os.environ.copy()
+    for key in ('PYTHONHOME','PYTHONPATH','VIRTUAL_ENV','PYTHONUSERBASE','PYTHONSTARTUP'):
+        result.pop(key,None)
+    result['PYTHONNOUSERSITE']='1'
+    return result
+
+
+def _blender_smoke_error(process):
+    """Dependency-free diagnostic reader for the SYSTEM-Python installer.
+
+    Do not import backend.mesh_optimize here: it requires Pillow, which lives in
+    the release's virtualenv, not in the system interpreter running this installer.
+    """
+    streams=[]
+    for output in (getattr(process,'stdout',''),getattr(process,'stderr','')):
+        if isinstance(output,bytes):output=output.decode('utf-8','replace')
+        if output:streams.append(str(output))
+    lines=[line.strip() for line in '\n'.join(streams).splitlines() if line.strip()]
+    markers=('UMI_BLENDER_MODULE_MISSING:','ModuleNotFoundError:',
+             'ImportError:','RuntimeError:','AttributeError:','ValueError:',
+             'Error:','Exception:')
+    important=[line for line in lines if any(marker in line for marker in markers)]
+    roots=[line for line in important if ('ModuleNotFoundError:' in line or
+            'UMI_BLENDER_MODULE_MISSING:' in line)]
+    detail=(roots or important or lines)
+    message=detail[-1] if detail else 'Blender process ended without diagnostic output'
+    message=re.sub(r'(?:(?:/opt|/var|/tmp|/home)/[^\s]+)','[file]',message)
+    return re.sub(r'[\x00-\x1f\x7f]',' ',message)[:700]
+
+
+def _blender_smoke_missing(process):
+    detail=_blender_smoke_error(process)
+    match=re.search(r"(?:ModuleNotFoundError: No module named|UMI_BLENDER_MODULE_MISSING:)\s*['\"]?([A-Za-z0-9_.]+)",detail)
+    return match.group(1) if match else None
+
+
 def verify_blender_optimiser(release):
     """Exercise the actual UMI script as the same user that runs the service.
 
     A `bpy` import check alone does not detect broken GLTF addons or missing
     Python modules. This check runs before switching the active release.
     """
-    # The installer runs outside the Flask virtualenv; load the release's
-    # stdlib-only Blender helpers by file path rather than relying on PYTHONPATH.
-    import importlib.util
-    helper=importlib.util.spec_from_file_location('_umi_blender_helper',str(release/'backend/mesh_optimize.py'))
-    runtime=importlib.util.module_from_spec(helper)
-    helper.loader.exec_module(runtime)
-    blender_error_details=runtime.blender_error_details
-    blender_missing_module=runtime.blender_missing_module
-    blender_runtime_env=runtime.blender_runtime_env
+    # The installer uses SYSTEM Python; backend.mesh_optimize imports PIL from
+    # the release venv.  Never import that module into the installer process.
+    blender_error_details=_blender_smoke_error
+    blender_missing_module=_blender_smoke_missing
+    blender_runtime_env=_blender_smoke_env
     binary=shutil.which('blender')
     if not binary:raise InstallError('Blender binary missing before optimisation smoke check')
     with tempfile.TemporaryDirectory(prefix='blender-smoke-',dir=DATA) as temp:
@@ -367,7 +401,7 @@ def verify_blender_optimiser(release):
                                        '. '+blender_error_details(attempt))
             if attempt.returncode or not result.is_file() or result.stat().st_size<12:
                 raise InstallError('Blender optimisation smoke test failed: '+blender_error_details(attempt))
-        if result.open('rb').read(4)!=b'glTF':
+        if result.read_bytes()[:4]!=b'glTF':
             raise InstallError('Blender optimiser produced an invalid GLB')
         print('BLENDER: real GLB import, optimise and export PASSED as umi-lab',flush=True)
         # Native Blender Draco is independent of the optional glTF Transform CLI.

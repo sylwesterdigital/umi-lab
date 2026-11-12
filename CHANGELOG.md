@@ -1,3 +1,9 @@
+## 0.2.21 — Repair Ubuntu Blender verification environment
+- Fix the v0.2.20 deployment failure: the root installer no longer imports Pillow-dependent backend code using system Python.
+- Keep Pillow and image-processing dependencies exclusively in UMI LAB's release virtualenv.
+- Maintain service-user Blender GLB smoke checks, missing-module diagnosis and safe rollback.
+- Add regression testing that blocks Pillow imports during installer verification.
+
 ## 0.2.20 — Working WebP & Draco encoder recovery
 - Native WebP colour-texture encoding using Pillow and Khronos EXT_texture_webp, without glTF Transform; original geometry and noncolour textures unchanged.
 - Blender Draco remains preferred, with verified glTF Transform fallback when the Ubuntu Blender build lacks a native Draco library.
