@@ -92,7 +92,7 @@ def http_nginx(port):
 server {{
     listen 80;
     server_name {DOMAIN};
-    client_max_body_size 26m;
+    client_max_body_size 70m;
     location /.well-known/acme-challenge/ {{ root {ACME}; default_type text/plain; }}
     location / {{
         proxy_pass http://127.0.0.1:{port};
@@ -122,7 +122,7 @@ server {{
     ssl_certificate {CERT};
     ssl_certificate_key {KEY};
     ssl_protocols TLSv1.2 TLSv1.3;
-    client_max_body_size 26m;
+    client_max_body_size 70m;
     add_header Strict-Transport-Security "max-age=31536000" always;
     location / {{
         proxy_pass http://127.0.0.1:{port};

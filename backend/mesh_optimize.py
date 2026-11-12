@@ -61,63 +61,84 @@ def blender_missing_module(run):
     return match.group(1) if match else None
 
 def optimized_glb(source,ratio=.65,texture=.5,options=None):
+    """Create a new model; texture-only mode skips Blender and preserves mesh/rig bytes."""
     from .mesh_options import validate_plan, PlanError
+    from .model_textures import replace_glb_textures, TextureError
     if options is None:
-        # Previous v0.2.16 calls retain their historical defaults.
         options={'preset':'custom','geometry_ratio':ratio,'texture_scale':texture}
     try:plan=validate_plan(options)
     except PlanError as error:raise BlenderError(str(error),'INVALID_OPTIONS') from error
-    ratio=plan['geometry_ratio'];texture=plan['texture_scale']
+    scope=plan['scope'];fmt=plan['texture_format'];codec=plan['geometry_codec']
     cli=gltf_cli()
-    if (plan['geometry_codec']!='none' or plan['texture_format']!='original') and not cli:
-        raise BlenderError('Advanced texture/geometry codecs require the glTF Transform CLI on the server. Choose Original/None or install the CLI.','ADVANCED_CODEC_UNAVAILABLE')
-    info=blender_status()
-    if not info['ready']:
-        raise BlenderError(info['reason'],'BLENDER_NOT_READY')
-    binary=shutil.which('blender')
+    if (codec!='none' or fmt in ('webp','ktx2-etc1s','ktx2-uastc')) and not cli:
+        raise BlenderError('WebP, KTX2, Draco and Meshopt require glTF Transform. Native PNG/JPEG and texture downscaling remain available.','ADVANCED_CODEC_UNAVAILABLE')
+    if scope!='textures':
+        info=blender_status()
+        if not info['ready']:raise BlenderError(info['reason'],'BLENDER_NOT_READY')
     source=Path(source)
     if source.suffix.lower()!='.glb' or not source.is_file():
-        raise BlenderError('The selected 3D result has no standalone GLB to optimise. Recover its preview first.','INVALID_SOURCE')
-    if source.stat().st_size>90*1024*1024:
-        raise BlenderError('GLB is larger than the 90 MB optimisation limit.','TOO_LARGE')
-    try:
-        ratio=max(.15,min(1,float(ratio)));texture=max(.25,min(1,float(texture)))
-    except (ValueError,TypeError):raise BlenderError('Invalid geometry or texture settings','INVALID_OPTIONS')
+        raise BlenderError('The selected result has no standalone GLB. Recover its preview first.','INVALID_SOURCE')
+    if source.stat().st_size>90*1024*1024:raise BlenderError('GLB exceeds the 90 MB limit','TOO_LARGE')
     with tempfile.TemporaryDirectory(prefix='umi-blender-') as temp:
-        result=Path(temp)/'optimised.glb'
-        script=Path(__file__).with_name('blender_clean.py')
-        try:
-            run=subprocess.run([binary,'--background','--factory-startup','--disable-autoexec','--python',str(script),'--',str(source),str(result),str(ratio),str(texture),json.dumps(plan,separators=(',',':'))],capture_output=True,timeout=115,check=False,env=blender_runtime_env())
-        except subprocess.TimeoutExpired as exc:raise BlenderError('Blender optimisation exceeded 115 seconds. Try a smaller model.','BLENDER_TIMEOUT') from exc
-        except OSError as exc:raise BlenderError('Blender could not start under the UMI service account.','BLENDER_START_FAILED') from exc
-        if run.returncode!=0 or not result.is_file():
-            missing=blender_missing_module(run)
-            if missing:
-                raise BlenderError('Blender is missing Python module '+missing+'. Server deployment must repair this dependency.',
-                                   'BLENDER_MODULE_MISSING',blender_error_details(run))
-            raise BlenderError('Blender failed while reading, simplifying or exporting the GLB.','BLENDER_EXEC_FAILED',blender_error_details(run))
-        if plan['texture_format']!='original' or plan['geometry_codec']!='none':
-            current=result
-            passes=[]
-            fmt=plan['texture_format']
-            if fmt!='original':
-                cmd={'ktx2-etc1s':'etc1s','ktx2-uastc':'uastc'}.get(fmt,fmt)
-                # JPEG is color-only. Normal maps must remain lossless.
-                extra=['--slots','{baseColorTexture,emissiveTexture}'] if fmt in ('jpeg','webp') else []
-                passes.append((cmd,extra))
-            if plan['geometry_codec']!='none':passes.append((plan['geometry_codec'],[]))
-            for index,(command,extra) in enumerate(passes):
-                destination=Path(temp)/f'pass-{index}.glb'
-                try:
-                    run_cli=subprocess.run([cli,command,str(current),str(destination),*extra],capture_output=True,timeout=65,check=False,env=blender_runtime_env())
-                except subprocess.TimeoutExpired as error:raise BlenderError('glTF compression exceeded 65 seconds','CODEC_TIMEOUT') from error
-                if run_cli.returncode or not destination.is_file():
-                    raise BlenderError('glTF Transform could not apply '+command+'. Try a less aggressive setting.','CODEC_FAILED',blender_error_details(run_cli))
-                current=destination
-            result=current
-        if result.stat().st_size>100*1024*1024:
-            raise BlenderError('Optimised file exceeded the size limit','RESULT_TOO_LARGE')
-        with result.open('rb') as stream:header=stream.read(4)
-        if result.stat().st_size<12 or header!=b'glTF':
-            raise BlenderError('Blender did not produce a valid GLB','INVALID_RESULT')
-        return result.read_bytes()
+        intermediate=Path(temp)/'mesh.glb'
+        if scope=='textures':
+            intermediate.write_bytes(source.read_bytes())
+        else:
+            binary=shutil.which('blender')
+            script=Path(__file__).with_name('blender_clean.py')
+            # Material downscaling occurs *after* Blender export, independently of geometry.
+            try:
+                run=subprocess.run([binary,'--background','--factory-startup','--disable-autoexec',
+                                    '--python',str(script),'--',str(source),str(intermediate),
+                                    str(plan['geometry_ratio']), '1.0',json.dumps(plan,separators=(',',':'))],
+                                   capture_output=True,timeout=115,check=False,env=blender_runtime_env())
+            except subprocess.TimeoutExpired as error:
+                raise BlenderError('Blender optimisation exceeded 115 seconds. Try a smaller model.','BLENDER_TIMEOUT') from error
+            except OSError as error:
+                raise BlenderError('Blender could not start under the UMI service account.','BLENDER_START_FAILED') from error
+            if run.returncode!=0 or not intermediate.is_file():
+                missing=blender_missing_module(run)
+                if missing:raise BlenderError('Blender Python module missing: '+missing,'BLENDER_MODULE_MISSING',blender_error_details(run))
+                raise BlenderError('Blender failed while simplifying or exporting the GLB.','BLENDER_EXEC_FAILED',blender_error_details(run))
+        # Direct PNG/JPEG image processing supports formats without glTF Transform.
+        # Geometry-only mode leaves embedded textures unchanged.
+        current=intermediate
+        if scope!='mesh' and (plan['texture_scale']<1 or plan['texture_divisor']>1 or fmt!='original'):
+            native_format=fmt if fmt in ('png','jpeg') else 'original'
+            try:
+                binary=replace_glb_textures(current.read_bytes(),divisor=plan['texture_divisor'],
+                         texture_scale=plan['texture_scale'],texture_format=native_format)
+            except TextureError as error:
+                if scope!='full' or 'No editable embedded' not in str(error):
+                    raise BlenderError(str(error),'TEXTURE_PROCESSING_FAILED') from error
+            else:
+                native=Path(temp)/'materials.glb';native.write_bytes(binary);current=native
+        if fmt in ('webp','ktx2-etc1s','ktx2-uastc') and scope!='mesh':
+            cmd={'webp':'webp','ktx2-etc1s':'etc1s','ktx2-uastc':'uastc'}[fmt]
+            # Avoid lossy normal map conversion for WebP. KTX2 codec preserves
+            # the standard glTF texture semantics and required extensions.
+            args=['--slots','{baseColorTexture,emissiveTexture}'] if fmt=='webp' else []
+            candidate=Path(temp)/'encoded.glb'
+            try:
+                completed=subprocess.run([cli,cmd,str(current),str(candidate),*args],
+                    capture_output=True,timeout=120,check=False,env=blender_runtime_env())
+            except subprocess.TimeoutExpired as error:
+                raise BlenderError('Texture encoding timed out','CODEC_TIMEOUT') from error
+            if completed.returncode or not candidate.is_file():
+                raise BlenderError('Texture encoder could not apply '+cmd,'CODEC_FAILED',blender_error_details(completed))
+            current=candidate
+        if codec!='none' and scope!='textures':
+            candidate=Path(temp)/'compressed.glb'
+            try:
+                completed=subprocess.run([cli,codec,str(current),str(candidate)],
+                    capture_output=True,timeout=120,check=False,env=blender_runtime_env())
+            except subprocess.TimeoutExpired as error:
+                raise BlenderError('Geometry compression timed out','CODEC_TIMEOUT') from error
+            if completed.returncode or not candidate.is_file():
+                raise BlenderError('Geometry encoder could not apply '+codec,'CODEC_FAILED',blender_error_details(completed))
+            current=candidate
+        if current.stat().st_size>100*1024*1024:raise BlenderError('Optimised result exceeds 100 MB','RESULT_TOO_LARGE')
+        with current.open('rb') as input:file_header=input.read(12)
+        if current.stat().st_size<20 or file_header[:4]!=b'glTF':
+            raise BlenderError('Operation did not produce a valid GLB','INVALID_RESULT')
+        return current.read_bytes()

@@ -18,3 +18,25 @@ Source image -> subject selection -> candidate inventory -> selective image-to-i
 - Optional glTF Transform codecs: JPEG/WebP only for color/emissive slots, PNG, KTX2 ETC1S/UASTC and Draco/Meshopt. The CLI must be installed; viewer decoders and glTF extension support must be validated separately. Do not re-compress an already compressed copy without reason.
 - The original provider model is never modified. Optimized GLBs are added as separate tasks with an SQLite record of source ID, settings, before/after bytes. Native progress UI displays elapsed time, not synthetic percent completion. A restarted browser should refresh model tasks to discover completed results.
 - Compare original and optimized models visually, including material alpha, rigging, UV seams, normals, and animations, before using for games or printing. Optimisation does not make a mesh watertight or suitable for 3D printing.
+
+## v0.2.18 — 3D model imports & independent material workbench
+
+Drop an embedded GLB directly, or use Blender server-side for FBX, OBJ, STL,
+PLY, DAE and USD-family formats when the installed Blender version supports them.
+Rigged GLBs show clip selection, playback and a rig badge. Multi-file OBJ/MTL
+or glTF with external resources must be exported as a self-contained GLB first.
+
+Select **Optimise → Advanced → Apply to Textures only** and choose 1×,
+2×, 4×, 8× or 16× downscaling. PNG/JPEG use Pillow in the service process,
+without requiring Blender or glTF Transform and without changing geometry.
+WebP/KTX2 and Draco/Meshopt use the optional managed glTF Transform CLI.
+KTX2 and mesh compression outputs may need compatible runtime decoders.
+
+The 3D card menu offers **Export textures ZIP**. Edit the images within the
+ZIP externally and use **Reimport textures…** on the same source model. Only
+embedded PNG/JPEG images can currently be edited externally; the export
+includes a source-model hash that prevents applying the wrong ZIP. Reimport
+creates a distinct GLB and SQLite task, preserving the original model.
+
+Real savings depend on texture resolution, texture entropy and geometry size;
+texture conversion is not guaranteed to reduce size in every case.

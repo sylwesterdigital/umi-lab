@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#16191c">
-  <meta name="umi-version" content="0.2.17">
+  <meta name="umi-version" content="0.2.18">
   <title>UMI LAB — Object table</title>
   <link rel="stylesheet" href="/static/css/styles.css">
   <script defer src="/static/js/canvas-layouts.js"></script>
@@ -16,7 +16,7 @@
 <body>
   <main id="studio">
     <header class="topbar">
-      <div class="brand"><button id="homeButton" title="Return to the table" type="button">UMI LAB</button><button id="versionButton" title="Release notes" type="button">0.2.17</button></div>
+      <div class="brand"><button id="homeButton" title="Return to the table" type="button">UMI LAB</button><button id="versionButton" title="Release notes" type="button">0.2.18</button></div>
       <div class="top-controls"><button id="workspaceButton" type="button" title="Workspace, models and projects">Workspace <span aria-hidden="true">⌄</span></button><button id="profileButton" type="button" title="Profile"><span id="profileInitial">○</span><img id="profileImage" alt="" hidden></button></div>
     </header>
 
@@ -53,8 +53,11 @@
           <p class="mesh-opt-description">Quality affects geometry density and texture resolution. Actual savings are shown after processing; the original file is preserved.</p>
         </div>
         <div id="meshOptCustomPanel" class="mesh-opt-panel" hidden>
+          <label for="meshOptScope">Apply changes to</label><select id="meshOptScope"><option value="full">Geometry + textures</option><option value="textures">Textures only · preserve mesh / rig</option><option value="mesh">Geometry only · preserve textures</option></select>
           <label for="meshOptGeometry">Mesh · triangles retained <output id="meshOptGeometryValue">80%</output></label><input id="meshOptGeometry" type="range" min="15" max="100" step="5" value="80">
-          <label for="meshOptTexture">Materials · texture dimensions <output id="meshOptTextureValue">75%</output></label><input id="meshOptTexture" type="range" min="25" max="100" step="5" value="75">
+          <label for="meshOptTexture">Texture downscaling <output id="meshOptTextureValue">2× · half width &amp; height</output></label>
+          <select id="meshOptTexture"><option value="1">1× · original resolution</option><option value="2" selected>2× · half width / height</option><option value="4">4× · quarter width / height</option><option value="8">8× · eighth width / height</option><option value="16">16× · sixteenth width / height</option></select>
+          <p class="mesh-opt-description">Textures can be downscaled without changing geometry. Each 2× reduction means 4× fewer source pixels. Originals are kept.</p>
           <div class="mesh-opt-checks"><label><input type="checkbox" id="meshOptDeleteLoose" checked> Delete loose edges/vertices</label><label><input type="checkbox" id="meshOptRecalculate"> Recalculate normals</label><label><input type="checkbox" id="meshOptSmooth"> Smooth faces</label><label><input type="checkbox" id="meshOptWeighted"> Weighted normals</label><label><input type="checkbox" id="meshOptSmoothEdges"> Smooth edges</label></div>
           <label for="meshOptMerge">Merge by distance (model units)</label><input type="number" id="meshOptMerge" min="0" max="0.01" step="0.0001" value="0" inputmode="decimal">
           <label for="meshOptTextureFormat">Texture encoding</label><select id="meshOptTextureFormat"><option value="original">Original (GLB compatible)</option><option value="webp">WebP · color</option><option value="jpeg">JPEG · color</option><option value="png">PNG</option><option value="ktx2-etc1s">KTX2 · ETC1S</option><option value="ktx2-uastc">KTX2 · UASTC</option></select>
@@ -65,6 +68,7 @@
         <div class="mesh-opt-footer"><button id="meshOptCancel" type="button">Cancel</button><button id="meshOptStart" type="button">Optimise</button></div>
       </section>
     </div>
+    <input id="meshTexturePackInput" type="file" accept=".zip,application/zip" hidden aria-label="Reimport edited 3D textures">
     <div id="photoContext" class="photo-context" hidden role="menu" aria-label="Photo actions">
       <button type="button" data-photo-action="media-tools" hidden>Media tools</button><button type="button" data-photo-action="share">Share</button><button type="button" data-photo-action="make-main">Make main</button><button type="button" data-photo-action="analyze">Analyze visible objects</button><button type="button" data-photo-action="describe">Describe / ask AI</button><button type="button" data-photo-action="documents">Documents &amp; history</button><button type="button" data-photo-action="image">Generate / edit image</button><button type="button" data-photo-action="3d">Generate 3D</button><button type="button" data-photo-action="video-preview" hidden>Play video</button><button type="button" data-photo-action="video">Video storyboard plan</button><button type="button" data-photo-action="avatar">Avatar / rig plan</button><button type="button" data-photo-action="persona">Fictional persona concept</button><button type="button" data-photo-action="copy">Copy</button><button type="button" data-photo-action="pack">Move to pack</button><button type="button" data-photo-action="archive">Archive</button>
     </div>
@@ -93,7 +97,7 @@
       <textarea id="promptInput" rows="1" placeholder="Imagine anything…" maxlength="6000" required></textarea>
       <select id="imageProvider" aria-label="Image model"><option value="">Choose model</option></select>
       <button id="promptSubmit" class="create-button" type="submit">Generate <span aria-hidden="true">↗</span></button>
-      <input id="uploadInput" type="file" accept=".txt,.md,.markdown,.png,.jpg,.jpeg,.webp,.gif,.svg,.pdf,.mp3,.weba,.wav,.ogg,.m4a,.flac,.mp4,.mov,.m4v,.webm,image/*,audio/*,video/*,application/pdf" hidden>
+      <input id="uploadInput" type="file" accept=".txt,.md,.markdown,.png,.jpg,.jpeg,.webp,.gif,.svg,.pdf,.mp3,.weba,.wav,.ogg,.m4a,.flac,.mp4,.mov,.m4v,.webm,.glb,.gltf,.fbx,.obj,.stl,.ply,.dae,.usd,.usda,.usdc,.usdz,image/*,audio/*,video/*,application/pdf" hidden>
     </form>
 
     <div id="jobStatus" class="job-status" hidden role="status" aria-live="polite"><span class="job-orb" aria-hidden="true"></span><div class="job-body"><strong id="jobTitle">Generating</strong><span id="jobDetail">Connecting to image model…</span><div class="job-track"><span id="jobProgress"></span></div></div><span id="jobTimer">00:00</span><label class="follow-toggle"><input id="followMode" type="checkbox" checked> Follow</label><button id="stopJob" type="button" title="Pause after this image">Pause</button><button id="cancelJob" type="button" title="Stop this batch immediately. The current provider request may still incur charges.">Cancel</button></div>
@@ -137,7 +141,7 @@
       <label>Access<select id="sharePermission"><option value="public">Public · anyone with link</option><option value="pin">PIN protected</option><option value="approval">Request owner approval</option></select></label>
       <label id="sharePinRow" hidden>PIN<input id="sharePin" type="password" minlength="4" maxlength="40" autocomplete="off" placeholder="At least four characters"></label><p class="quiet">Sharing is off until a link is created. You can revoke it later in Workspace → Shares.</p>
       <div class="button-row"><button id="shareCreate" class="subtle-primary" type="button">Create link</button><button id="shareCopy" type="button" hidden>Copy link</button></div><p id="shareLink" class="share-link" role="status"></p></div></section>
-    <div id="addMenu" class="add-menu" hidden role="menu" aria-label="Add to canvas"><button data-add="folder" type="button">New envelope</button><button data-add="document" type="button">Text document</button><button data-add="import" type="button">Import file</button><button data-add="camera" type="button">Webcam</button><button data-add="microphone" type="button">Microphone</button></div>
+    <div id="addMenu" class="add-menu" hidden role="menu" aria-label="Add to canvas"><button data-add="folder" type="button">New envelope</button><button data-add="document" type="button">Text document</button><button data-add="import" type="button">Import file</button><button data-add="model" type="button">Import 3D model</button><button data-add="camera" type="button">Webcam</button><button data-add="microphone" type="button">Microphone</button></div>
     <div id="packMenu" class="pack-menu" hidden role="menu" aria-label="Envelope actions"><button data-pack-action="open">Open envelope</button><button data-pack-action="collect">Collect cards</button><button data-pack-action="expose">Expose contents</button><button data-pack-action="zip">Download ZIP</button><button data-pack-action="batch">Batch convert</button><button data-pack-action="archive">Archive envelope</button><label>Envelope colour<input id="packColour" type="color" value="#82ad9c"></label></div>
     <section id="partsModal" class="modal-scrim" hidden aria-label="Parts plan" role="dialog" aria-modal="true"><div class="modal-card parts-planner"><div class="modal-title"><h2>Part collection</h2><button id="partsClose" type="button">×</button></div><p class="quiet">Use AI-detected components from the selected image, or add your own items. Uncertain objects should be reviewed before generation.</p>
       <label hidden>Legacy scene type<select id="subjectType"><option value="vehicle">Vehicle</option><option value="person">Person & outfit</option><option value="room">Room / scene</option><option value="product">Product</option><option value="machine">Machine / robot</option><option value="object">Other object</option></select></label>

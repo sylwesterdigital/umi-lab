@@ -241,3 +241,15 @@ body[data-theme=warm]{--bg:#29221e;--surface:#3e312a;--ink:#f3ebdf;--muted:#c3b5
 .mesh-opt-footer button{padding:10px 15px;border-radius:10px;font-size:12px;border:1px solid #637c6c}
 .mesh-opt-footer #meshOptStart{background:#c4e5d1;color:#182c21;font-weight:650}
 
+
+/* v0.2.18: Rigged model playback is contextual and never steals card dragging. */
+.umi-model-frame{position:relative;min-width:0}
+.umi-model-frame .umi-rig-controls{position:absolute;z-index:5;bottom:5px;left:5px;right:5px;justify-content:center;opacity:.14;transition:opacity .18s}
+.mesh-card:hover .umi-rig-controls,.mesh-card:focus-within .umi-rig-controls{opacity:1}
+.umi-rig-controls{display:flex;gap:4px;align-items:center;max-width:100%;flex-wrap:wrap;justify-content:center;user-select:none}
+.umi-rig-controls[hidden]{display:none!important}
+.umi-rig-controls button,.umi-rig-controls select,.umi-rig-controls .umi-rig-label{font:11px system-ui,sans-serif;background:#21342de6;color:#edfaf3;border:1px solid #78978966;border-radius:20px;padding:6px 10px;max-width:170px;min-width:0}
+.umi-rig-controls button{cursor:pointer;min-width:32px}
+.umi-rig-controls select{cursor:pointer;max-width:150px;text-overflow:ellipsis}
+.mesh-stage>.umi-rig-controls{justify-content:center;flex:none}
+@media(prefers-reduced-motion:reduce){.umi-model-frame .umi-rig-controls{transition:none}}

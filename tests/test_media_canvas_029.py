@@ -45,6 +45,6 @@ class MediaCanvas029(unittest.TestCase):
         self.assertIn('media_type(file.filename',api)
         self.assertIn('transcode(blob,mime)',api)
         self.assertIn('imageio-ffmpeg==0.6.0',(ROOT/'backend/requirements.txt').read_text())
-        self.assertIn('client_max_body_size 26m',(ROOT/'deploy/install.py').read_text())
+        self.assertIn('client_max_body_size 70m',(ROOT/'deploy/install.py').read_text())
 
 if __name__=='__main__':unittest.main()

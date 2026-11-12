@@ -24,6 +24,8 @@ from . import db as store
 from .providers import PRESETS, BY_ID, ProviderError, chat as provider_chat, generate_image, safe_base_url, check_api
 from .meta_sam import segment_image
 from .mesh_preview import preview_blob, preview_is_ready
+from .model_import import SUPPORTED as MODEL_TYPES, MAX_UPLOAD_3D, ModelImportError, convert_to_glb, model_metadata
+from .model_textures import texture_archive, read_texture_archive, replace_glb_textures, TextureError
 from .scene_analysis import analyze as analyze_visual_scene, visual_question
 from .media_tools import MEDIA_TYPES, MAX_UPLOAD, MediaError, media_type, clean_svg, validate_gif, pdf_text, pdf_thumbnail, transcode
 from .media_pipeline import hls_from_file, transform_media
@@ -50,7 +52,7 @@ def persistent_key(filename, env_name, generator):
 SESSION_KEY=persistent_key('.session-key','UMI_SESSION_KEY',lambda:secrets.token_urlsafe(48).encode())
 CRYPT=Fernet(persistent_key('.fernet-key','UMI_FERNET_KEY',Fernet.generate_key))
 app=Flask(__name__,static_folder=str(ROOT/'frontend'),static_url_path='/static')
-app.config.update(SECRET_KEY=SESSION_KEY,MAX_CONTENT_LENGTH=26*1024*1024,
+app.config.update(SECRET_KEY=SESSION_KEY,MAX_CONTENT_LENGTH=70*1024*1024,
                   SESSION_COOKIE_HTTPONLY=True,SESSION_COOKIE_SAMESITE='Strict',
                   SESSION_COOKIE_SECURE=os.environ.get('UMI_HTTPS','0')=='1',
                   PERMANENT_SESSION_LIFETIME=60*60*24*14)
@@ -1275,6 +1277,118 @@ def task_preview_info(row):
     return {'preview_url':None,'preview_status':'recoverable' if row['status']=='SUCCEEDED' and row['provider']=='aholo' else 'unavailable'}
 
 
+@app.post('/api/projects/<pid>/models/import')
+@authenticated
+def import_model(pid):
+    """Import an owned, bounded local 3D model. Always retain original, never run embedded scripts."""
+    uploaded=request.files.get('model')
+    if not uploaded or not uploaded.filename:
+        return jsonify(error='Choose a 3D model file'),400
+    ext=Path(uploaded.filename).suffix.lower()
+    if ext not in MODEL_TYPES:
+        return jsonify(error='Supported 3D files: GLB, glTF (embedded), FBX, OBJ, STL, PLY, DAE, USD, USDZ'),400
+    with store.connect(DATA) as conn:
+        if not store.project_for(conn,session['uid'],pid):abort(404)
+    content=uploaded.read(MAX_UPLOAD_3D+1)
+    if not content or len(content)>MAX_UPLOAD_3D:
+        return jsonify(error='3D model must be between 1 byte and 64 MB'),400
+    task_id=store.new_id();asset_id=store.new_id()
+    label=Path(uploaded.filename).stem[:80] or 'Imported 3D model'
+    result=MESHES/(task_id+'.glb')
+    try:
+        with tempfile.TemporaryDirectory(prefix='umi-model-',dir=DATA) as scratch:
+            original=Path(scratch)/('model'+ext)
+            original.write_bytes(content)
+            meta=convert_to_glb(original,result,ext,ROOT/'backend'/'model_import_blender.py')
+        os.chmod(result,0o600)
+        original_dest=MEDIA/(asset_id+ext)
+        with original_dest.open('xb') as output:output.write(content)
+        os.chmod(original_dest,0o600)
+        now=int(time.time())
+        try:
+            with store.connect(DATA) as conn:
+                if not store.project_for(conn,session['uid'],pid):abort(404)
+                conn.execute('INSERT INTO assets VALUES(?,?,?,?,?,?,?)',
+                             (asset_id,pid,original_dest.name,MODEL_TYPES[ext],'model','3d_import',now))
+                conn.execute('INSERT INTO mesh_tasks VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                             (task_id,pid,asset_id,session['uid'],'import','local',label,'SUCCEEDED',result.name,'',0,now,now))
+                conn.commit()
+        except Exception:
+            original_dest.unlink(missing_ok=True)
+            raise
+    except ModelImportError as exc:
+        result.unlink(missing_ok=True)
+        return jsonify(error=str(exc)),400
+    except (OSError,ValueError,subprocess.TimeoutExpired) as exc:
+        result.unlink(missing_ok=True)
+        app.logger.error('3D import failed: %s',type(exc).__name__)
+        return jsonify(error='3D file could not be saved or converted'),502
+    task={'id':task_id,'asset_id':asset_id,'provider':'import','status':'SUCCEEDED',
+          'label':label,'preview_url':'/api/mesh-tasks/'+task_id+'/preview',
+          'download_url':'/api/mesh-tasks/'+task_id+'/download','model_size_bytes':result.stat().st_size,**meta}
+    return jsonify(task=task,asset_id=asset_id),201
+
+
+def texture_source_for(owner,pid,task_id):
+    """Return viewable source bytes for an owned, completed task (including ZIP-backed AHOLO)."""
+    with store.connect(DATA) as db:
+        if not store.project_for(db,owner,pid):abort(404)
+        task=db.execute('SELECT * FROM mesh_tasks WHERE id=? AND project_id=? AND user_id=?',
+                        (task_id,pid,owner)).fetchone()
+    if task is None:abort(404)
+    if task['status']!='SUCCEEDED':raise TextureError('Model is not ready')
+    path=MESHES/task['model_file'] if task['model_file'] else None
+    if path is None or not path.is_file():raise TextureError('Original model is not available on server')
+    blob=preview_blob(path,mesh_preview_path(task_id))
+    if not blob:raise TextureError('This model has no viewable GLB; recover its preview first')
+    return blob,task
+
+
+@app.get('/api/projects/<pid>/models/<task_id>/textures')
+@authenticated
+def download_model_textures(pid,task_id):
+    try:
+        blob,task=texture_source_for(session['uid'],pid,task_id)
+        packed=texture_archive(blob)
+    except TextureError as error:return jsonify(error=str(error)),422
+    output=io.BytesIO(packed)
+    return send_file(output,mimetype='application/zip',as_attachment=True,
+                     download_name='UMI_textures_'+task_id[:12]+'.zip')
+
+
+@app.post('/api/projects/<pid>/models/<task_id>/textures')
+@authenticated
+def reimport_model_textures(pid,task_id):
+    upload=request.files.get('textures')
+    if not upload:return jsonify(error='Select a UMI texture ZIP to reimport'),400
+    packed=upload.read(56*1024*1024+1)
+    if len(packed)>56*1024*1024:return jsonify(error='Texture ZIP exceeds 56 MB'),413
+    try:
+        blob,task=texture_source_for(session['uid'],pid,task_id)
+        replacements=read_texture_archive(packed,blob)
+        result=replace_glb_textures(blob,replacements=replacements)
+    except TextureError as error:return jsonify(error=str(error)),422
+    if len(result)>100*1024*1024:return jsonify(error='Processed model exceeds 100 MB'),413
+    new_id=store.new_id();dest=MESHES/(new_id+'.glb')
+    with dest.open('xb') as stream:stream.write(result)
+    os.chmod(dest,0o600)
+    now=int(time.time())
+    try:
+        with store.connect(DATA) as db:
+            if not store.project_for(db,session['uid'],pid):abort(404)
+            db.execute('INSERT INTO mesh_tasks VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
+               (new_id,pid,task['asset_id'],session['uid'],'texture-workbench',new_id,
+                'Textures · '+task['label'],'SUCCEEDED',dest.name,'',0,now,now))
+            db.execute('INSERT INTO mesh_optimisations(task_id,source_task_id,preset,options,before_bytes,after_bytes,created_at) VALUES(?,?,?,?,?,?,?)',
+               (new_id,task_id,'texture-reimport',json.dumps({'source':'texture-pack','image_count':len(replacements)}),len(blob),len(result),now))
+            db.commit()
+    except Exception:
+        dest.unlink(missing_ok=True)
+        raise
+    return jsonify(id=new_id,status='SUCCEEDED',source_bytes=len(blob),output_bytes=len(result),
+                   preview_url='/api/mesh-tasks/'+new_id+'/preview',download_url='/api/mesh-tasks/'+new_id+'/download'),201
+
+
 @app.get('/api/projects/<pid>/mesh-tasks')
 @authenticated
 def list_mesh_tasks(pid):
@@ -1292,6 +1406,12 @@ def list_mesh_tasks(pid):
         task['optimisation']=history.get(task['id'])
         task['download_url']='/api/mesh-tasks/'+task['id']+'/download' if task['model_size_bytes'] is not None else None
         task.update(task_preview_info(row))
+        task.update({'rigged':False,'animations':[],'skin_count':0})
+        if task['preview_url']:
+            meta_path=mesh_preview_path(task['id']) if mesh_preview_path(task['id']).is_file() else path
+            if meta_path and meta_path.suffix.lower()=='.glb':
+                try:task.update(model_metadata(meta_path))
+                except (OSError,ModelImportError):pass
         tasks.append(task)
     return jsonify(tasks=tasks)
 

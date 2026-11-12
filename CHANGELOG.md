@@ -1,3 +1,14 @@
+## v0.2.18 — Imported 3D, animation and independent textures
+- Drag/drop GLB directly onto the canvas, or import FBX, OBJ, STL, PLY, COLLADA (DAE), embedded glTF, USD and USDZ with Blender conversion when supported by the installed importer.
+- Original uploads and preview GLBs are stored separately and privately, owned by the project and available as standalone 3D cards.
+- Animated GLBs show lightweight clip selection and play/pause controls in the card and full-size viewer. Rigged models without clips display a Rigged indicator.
+- Import limits: 64 MB for source, 60 MB for viewable GLB. Embedded-only glTF; OBJ textures should be embedded in a GLB before upload. No remote fetching or embedded script execution.
+
+- Texture-only optimisation is available without Blender: select exact 1×, 2×, 4×, 8× or 16× dimension reduction and native PNG/JPEG. No mesh, rig or animation modification is required.
+- Export embedded PNG/JPEG materials to a ZIP, edit them externally, and reimport the ZIP to a NEW GLB. Original geometry, animations and models remain unchanged.
+- Separate geometry-only, textures-only and combined modes. WebP, KTX2, Draco and Meshopt are enabled only when glTF Transform is installed; the UI explains the codec requirement rather than disabling PNG/JPEG.
+- 3D importer covers GLB, embedded glTF, FBX, OBJ, STL, PLY, DAE and USD variants subject to Blender importer support and existing per-user security limits.
+
 ## v0.2.17 — 3D optimisation workbench and clean model cards
 
 - Move per-model actions into one minimal three-dot menu; retain direct orbit interaction and card dragging.
