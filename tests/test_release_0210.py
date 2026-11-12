@@ -24,6 +24,6 @@ class Release0210(unittest.TestCase):
         self.assertIn('function protectMeshOrbit(',script)
         self.assertIn("protectMeshOrbit($('meshStageViewer'))",script)
         self.assertIn("closest('model-viewer,.mesh-card,.mesh-stage')",script)
-        self.assertIn("!e.target.closest('header')",script)
+        self.assertIn("e.target.closest('model-viewer,.mesh-card-actions",script)
 
 if __name__=='__main__':unittest.main()

@@ -189,3 +189,10 @@ body[data-theme=warm]{--bg:#29221e;--surface:#3e312a;--ink:#f3ebdf;--muted:#c3b5
 #boardWorld .pack-back{position:absolute;left:24px;top:-65px;min-width:150px;padding:8px 12px;border:1px solid #88b3a26c;border-radius:18px;background:#233c31e9;color:#d8f8e6;font-size:12px;pointer-events:auto;white-space:nowrap}
 #cancelJob,#cancelQueue{font-size:11px;color:#f8b6a7;padding:7px 9px;border:1px solid #d9a49a69;border-radius:9px;background:#5b302930}
 #cancelJob:hover,#cancelQueue:hover{background:#aa514339;color:#ffe1d9}
+
+/* v0.2.14 — the card's white frame is its drag handle; the model stays interactive. */
+.mesh-card{touch-action:none;cursor:grab}
+.mesh-card.is-dragging{cursor:grabbing;z-index:13;box-shadow:0 18px 48px #0009}
+.mesh-card .mesh-card-actions,.mesh-card .mesh-card-actions *{cursor:pointer}
+.mesh-card model-viewer{touch-action:none;cursor:grab}
+.mesh-card model-viewer:active{cursor:grabbing}

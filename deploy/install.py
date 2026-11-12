@@ -152,6 +152,7 @@ WorkingDirectory={BASE}/current
 Environment=UMI_DATA_DIR={DATA}
 Environment=UMI_HTTPS=1
 Environment=PYTHONUNBUFFERED=1
+Environment=UMI_ENABLE_BLENDER=1
 ExecStart={BASE}/current/.venv/bin/gunicorn --workers 1 --threads 4 --timeout 220 --bind 127.0.0.1:{port} backend.wsgi:app
 Restart=on-failure
 RestartSec=2
@@ -165,6 +166,39 @@ UMask=0077
 [Install]
 WantedBy=multi-user.target
 '''
+
+
+def prepare_blender():
+    """Install Blender via Ubuntu APT only when absent, then verify headless bpy.
+
+    This intentionally does not upgrade other packages or touch other services.
+    Run before switching the current UMI release to keep deployment atomic.
+    """
+    binary=shutil.which('blender')
+    if not binary:
+        if not shutil.which('apt-get'):
+            raise InstallError('Blender missing; APT is unavailable on this server')
+        if shutil.disk_usage('/var').free < 900*1024*1024:
+            raise InstallError('Not enough free disk space for Blender installation (900 MB required)')
+        print('BLENDER: installing Ubuntu Blender package (UMI 3D optimisation)',flush=True)
+        apt_env={**os.environ,'DEBIAN_FRONTEND':'noninteractive','APT_LISTCHANGES_FRONTEND':'none'}
+        cmd=['apt-get','-o','DPkg::Lock::Timeout=45','install','--no-install-recommends','-y','blender']
+        first=run(cmd,timeout=205,check=False,env=apt_env)
+        if first.returncode:
+            # Stale/missing APT indexes are common on a newly provisioned host.
+            # Do not perform a global upgrade; update package indexes only.
+            run(['apt-get','update','-qq'],timeout=75,env=apt_env)
+            run(cmd,timeout=205,env=apt_env)
+        binary=shutil.which('blender')
+        if not binary:raise InstallError('Blender package installation finished but binary was not found')
+    # A version string alone does not establish that headless Python/GLB works.
+    check=run([binary,'--background','--factory-startup','--disable-autoexec',
+               '--python-expr','import bpy; assert hasattr(bpy.ops.import_scene, "gltf") and hasattr(bpy.ops.export_scene, "gltf"); print("UMI_BLENDER_OK")'],
+              timeout=45,check=False)
+    if check.returncode or 'UMI_BLENDER_OK' not in check.stdout:
+        raise InstallError('Blender headless GLB capability check failed: '+(check.stderr or check.stdout)[-500:])
+    print('BLENDER: headless GLB import/export verified; optimisation enabled',flush=True)
+    return binary
 
 
 def snapshot(token):
@@ -329,6 +363,7 @@ def install(stage,version,token):
     release=None
     try:
         release=prepare_release(stage,version)
+        prepare_blender()
         seed_admin(release)
         write_atomic(UNIT,unit_source(port))
         link=BASE/'current';temp=BASE/'.next-current'

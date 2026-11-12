@@ -1,3 +1,9 @@
+## v0.2.14 — Draggable 3D cards and automatic Blender provisioning
+- Drag 3D result cards using any noninteractive portion, including the outer white frame and title; rotating/zooming the model stays independent.
+- Release installer installs Blender from Ubuntu APT when missing, verifies headless glTF/GLB processing and enables it for the UMI service.
+- Removed misleading optimisation messaging that tells the user to install or configure Blender manually.
+- Existing SQLite data and previously generated GLB assets remain untouched.
+
 ## v0.2.13 — Stable folder view and pointer add menu
 
 - Shift+A positions the Add menu at the mouse pointer, right edge aligned to cursor, clamped to the viewport.

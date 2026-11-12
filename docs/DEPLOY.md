@@ -53,3 +53,14 @@ This release adds new concepts-generation modes only; no watcher changes are req
 ## v0.2.0 design table
 
 The frontend now loads only `/static/js/app.js`; retained the unused viewer module solely for watcher v0.1.3 compatibility; the image-editor and release-notes modules are removed. Existing SQLite data and provider keys remain untouched. Angular/part image series are initiated client-side as individually billable requests; stopping pauses after the in-flight provider call.
+
+
+## Blender (v0.2.14 onward)
+
+During the release deployment, `deploy/install.py` verifies a working headless Blender
+installation. If missing, it installs the Ubuntu `blender` package using `apt-get
+install --no-install-recommends`. It verifies GLB import/export before activating the
+release. Only `umi-lab.service` is enabled for 3D optimisation via
+`UMI_ENABLE_BLENDER=1` in its own unit; other sites and services are untouched.
+If installation cannot finish inside deployment limits or resources are insufficient,
+the watcher reports the failure and restores the previous active UMI release.
