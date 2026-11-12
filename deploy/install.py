@@ -201,6 +201,81 @@ def prepare_blender():
     return binary
 
 
+def _blender_sample_glb():
+    """Return a tiny valid glTF 2.0 triangle for end-to-end importer/exporter testing."""
+    import struct
+    vertices=struct.pack('<9f',0.0,0.0,0.0,1.0,0.0,0.0,0.0,1.0,0.0)
+    indices=struct.pack('<3H',0,1,2)+b'\0\0'
+    binary=vertices+indices
+    scene={'asset':{'version':'2.0'},'scene':0,'scenes':[{'nodes':[0]}],
+           'nodes':[{'mesh':0}],'meshes':[{'primitives':[{'attributes':{'POSITION':0},'indices':1}]}],
+           'buffers':[{'byteLength':len(binary)}],
+           'bufferViews':[{'buffer':0,'byteOffset':0,'byteLength':36,'target':34962},
+                          {'buffer':0,'byteOffset':36,'byteLength':6,'target':34963}],
+           'accessors':[{'bufferView':0,'componentType':5126,'count':3,'type':'VEC3',
+                         'min':[0,0,0],'max':[1,1,0]},
+                        {'bufferView':1,'componentType':5123,'count':3,'type':'SCALAR'}]}
+    doc=json.dumps(scene,separators=(',',':')).encode('utf-8')
+    doc+=b' '*((-len(doc))%4)
+    return (struct.pack('<4sII',b'glTF',2,12+8+len(doc)+8+len(binary))+
+            struct.pack('<I4s',len(doc),b'JSON')+doc+
+            struct.pack('<I4s',len(binary),b'BIN\x00')+binary)
+
+def verify_blender_optimiser(release):
+    """Exercise the actual UMI script as the same user that runs the service.
+
+    A `bpy` import check alone does not detect broken GLTF addons or missing
+    Python modules. This check runs before switching the active release.
+    """
+    # The installer runs outside the Flask virtualenv; load the release's
+    # stdlib-only Blender helpers by file path rather than relying on PYTHONPATH.
+    import importlib.util
+    helper=importlib.util.spec_from_file_location('_umi_blender_helper',str(release/'backend/mesh_optimize.py'))
+    runtime=importlib.util.module_from_spec(helper)
+    helper.loader.exec_module(runtime)
+    blender_error_details=runtime.blender_error_details
+    blender_missing_module=runtime.blender_missing_module
+    blender_runtime_env=runtime.blender_runtime_env
+    binary=shutil.which('blender')
+    if not binary:raise InstallError('Blender binary missing before optimisation smoke check')
+    with tempfile.TemporaryDirectory(prefix='blender-smoke-',dir=DATA) as temp:
+        folder=Path(temp)
+        account=pwd.getpwnam('umi-lab')
+        os.chown(folder,account.pw_uid,account.pw_gid)
+        os.chmod(folder,0o700)
+        source=folder/'triangle.glb';result=folder/'triangle-optimised.glb'
+        source.write_bytes(_blender_sample_glb())
+        os.chown(source,account.pw_uid,account.pw_gid)
+        cmd=[binary,'--background','--factory-startup','--disable-autoexec','--python',
+             str(release/'backend/blender_clean.py'),'--',str(source),str(result),'0.65','1.0']
+        # Run as UMI rather than root; detect missing modules and filesystem ACLs.
+        if shutil.which('runuser'):
+            cmd=['runuser','-u','umi-lab','--',*cmd]
+        else:
+            raise InstallError('runuser unavailable: cannot verify Blender under UMI account')
+        attempt=run(cmd,timeout=90,check=False,env=blender_runtime_env())
+        if attempt.returncode or not result.is_file() or result.stat().st_size<12:
+            missing=blender_missing_module(attempt)
+            if missing:
+                # Only known standard modules may be installed. No arbitrary
+                # Python package names from a model file are ever executed.
+                known={'numpy':'python3-numpy','PIL':'python3-pil','yaml':'python3-yaml'}
+                package=known.get(missing.split('.')[0])
+                if package and shutil.which('apt-get'):
+                    apt_env={**os.environ,'DEBIAN_FRONTEND':'noninteractive'}
+                    print('BLENDER: repairing missing dependency '+missing,flush=True)
+                    run(['apt-get','-o','DPkg::Lock::Timeout=45','install','--no-install-recommends','-y',package],
+                        timeout=200,env=apt_env)
+                    attempt=run(cmd,timeout=90,check=False,env=blender_runtime_env())
+                if attempt.returncode:
+                    raise InstallError('Blender optimisation cannot start; missing module '+missing+
+                                       '. '+blender_error_details(attempt))
+            if attempt.returncode or not result.is_file() or result.stat().st_size<12:
+                raise InstallError('Blender optimisation smoke test failed: '+blender_error_details(attempt))
+        if result.open('rb').read(4)!=b'glTF':
+            raise InstallError('Blender optimiser produced an invalid GLB')
+        print('BLENDER: real GLB import, optimise and export PASSED as umi-lab',flush=True)
+
 def snapshot(token):
     path=BACKUPS/token
     if path.exists():raise InstallError('Snapshot name already exists')
@@ -364,6 +439,7 @@ def install(stage,version,token):
     try:
         release=prepare_release(stage,version)
         prepare_blender()
+        verify_blender_optimiser(release)
         seed_admin(release)
         write_atomic(UNIT,unit_source(port))
         link=BASE/'current';temp=BASE/'.next-current'

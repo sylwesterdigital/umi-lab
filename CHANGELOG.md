@@ -1,3 +1,11 @@
+## v0.2.16 — Blender Python modules and reliable optimisation preflight
+
+- Run the real Blender GLB importer, decimator and exporter under the UMI service user before activating the release.
+- Detect the specific `ModuleNotFoundError` instead of hiding it behind generic failure messages.
+- Repair a short allowlist of missing Blender Python dependencies via Ubuntu APT when applicable; fail safely with the exact missing module otherwise.
+- Strip Flask virtualenv Python variables from the isolated Blender process.
+- Preserve saved models, projects, API keys, SQLite and existing optimised results.
+
 ## v0.2.15 — Native drag selection fix and 3D optimisation diagnostics
 
 - Browser text selection is disabled on draggable canvas surfaces, while document editors and text inputs remain selectable.

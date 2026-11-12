@@ -1433,7 +1433,7 @@ def optimise_mesh(pid):
             # Surface a meaningful error to the owning user's session activity.
             conn.execute('INSERT INTO events(user_id,session_id,created_at,level,action,status) VALUES(?,?,?,?,?,?)',
                          (session['uid'],session.get('sid',''),int(time.time()),'ERROR',
-                          '3D optimise: '+code+' · '+str(exc)[:190],status))
+                          '3D optimise: '+code+' · '+((exc.detail or str(exc))[:190]),status))
             conn.commit()
             return jsonify(error=str(exc),code=code,detail=exc.detail),status
         new_id=store.new_id();dest=MESHES/(new_id+'.glb');preview=mesh_preview_path(new_id)
