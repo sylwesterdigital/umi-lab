@@ -115,7 +115,7 @@ def security(resp):
     else:
         resp.headers['X-Frame-Options']='DENY'
         resp.headers['Content-Security-Policy']=("default-src 'self'; img-src 'self' data: blob:; "
-            "script-src 'self' https://cdn.jsdelivr.net 'sha256-V5W/S/ezCmFEoq8zylsgcbGgPNc2njwXvX8NL5xHP7g='; style-src 'self' 'unsafe-inline'; "
+            "script-src 'self' https://cdn.jsdelivr.net 'wasm-unsafe-eval' 'sha256-V5W/S/ezCmFEoq8zylsgcbGgPNc2njwXvX8NL5xHP7g='; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; "
             "connect-src 'self' blob: https://cdn.jsdelivr.net; font-src 'self' blob: data:; frame-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
     return resp
 

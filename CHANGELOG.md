@@ -1,3 +1,10 @@
+## 0.2.25 — Self-hosted Draco GLB preview
+- Point model-viewer at UMI-managed same-origin Draco 1.5.6 decoder assets before the component loads.
+- Install and validate JS + WASM decoder assets under the new release before activation; keep previous live release active if decoder provision fails.
+- Permit only same-origin/blob workers and WebAssembly evaluation in the browser CSP, without adding Google CDN access.
+- Show an explicit preview failure without losing a saved 3D model.
+- Add release regression tests for model-viewer configuration, installer validation and CSP.
+
 ## 0.2.24 — Watcher test-output fix and safe release selection
 - Fix the 0.2.23 macOS watcher false rejection: capture an expected installer diagnostic inside its passing regression test.
 - Bundle watcher v0.1.4: use unittest exit status and summary instead of searching diagnostic text for `FAILED`.

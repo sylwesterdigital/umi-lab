@@ -42,7 +42,7 @@ class DracoDeploymentSafetyTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)
             stage=root/'stage';(stage/'app').mkdir(parents=True)
-            (stage/'app/version.json').write_text('{"project":"umi-lab","version":"0.2.24"}')
+            (stage/'app/version.json').write_text('{"project":"umi-lab","version":"0.2.25"}')
             release=root/'release';release.mkdir()
             snap=root/'backup';snap.mkdir()
             unit=root/'umi-lab.service'
@@ -60,6 +60,7 @@ class DracoDeploymentSafetyTest(unittest.TestCase):
                  patch.object(install,'prepare_release',return_value=release),\
                  patch.object(install,'prepare_blender'),\
                  patch.object(install,'verify_blender_optimiser'),\
+                 patch.object(install,'prepare_draco_decoder'),\
                  patch.object(install,'seed_admin'),\
                  patch.object(install,'prepare_gltf_transform',return_value=False),\
                  patch.object(install,'verify_draco_runtime',side_effect=reject_draco),\
@@ -73,7 +74,7 @@ class DracoDeploymentSafetyTest(unittest.TestCase):
                 emitted=StringIO()
                 with redirect_stderr(emitted):
                     with self.assertRaisesRegex(install.InstallError,'preactivation test stop'):
-                        install.install(stage,'0.2.24','unit-test-safe')
+                        install.install(stage,'0.2.25','unit-test-safe')
                 self.assertIn('PRE-ACTIVATION FAILED',emitted.getvalue())
                 rollback.assert_not_called()
                 run.assert_not_called()

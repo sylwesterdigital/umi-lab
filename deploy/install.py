@@ -520,6 +520,63 @@ def verify_draco_runtime(release):
         return 'gltf-transform'
 
 
+DRACO_VERSION='1.5.6'
+DRACO_ASSETS=('draco_decoder.js','draco_decoder.wasm','draco_wasm_wrapper.js')
+DRACO_SOURCES=(
+    'https://www.gstatic.com/draco/versioned/decoders/1.5.6/',
+    # Alternate official Three.js distribution with the same glTF decoder interface.
+    'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/libs/draco/gltf/',
+)
+
+def valid_decoder_asset(name,data):
+    """Reject HTML errors, incomplete downloads and non-WebAssembly content."""
+    if not isinstance(data,bytes) or len(data)>3*1024*1024:return False
+    if name.endswith('.wasm'):
+        return len(data)>10000 and data.startswith(b'\x00asm\x01\x00\x00\x00')
+    return len(data)>1000 and b'<html' not in data[:256].lower() and b'<!doctype' not in data[:256].lower()
+
+def prepare_draco_decoder(release,fetch=None):
+    """Install self-hosted glTF Draco assets into an inactive release.
+
+    Invariant: all three files must come from the same trusted versioned source.
+    The old website is left untouched if any asset cannot be validated.
+    """
+    from urllib.request import Request, urlopen
+    fetch=fetch or urlopen
+    destination=Path(release)/'frontend/decoders/draco'
+    destination.mkdir(parents=True,exist_ok=True)
+    if all((destination/n).is_file() and valid_decoder_asset(n,(destination/n).read_bytes())
+           for n in DRACO_ASSETS):
+        print('DRACO VIEWER: local WASM + JS decoder verified',flush=True)
+        return destination
+    errors=[]
+    for base in DRACO_SOURCES:
+        downloaded={}
+        try:
+            for name in DRACO_ASSETS:
+                request=Request(base+name,headers={'User-Agent':'UMI-LAB/0.2.25','Accept':'*/*'})
+                with fetch(request,timeout=14) as response:
+                    blob=response.read(3*1024*1024+1)
+                if not valid_decoder_asset(name,blob):
+                    raise InstallError('Invalid or incomplete '+name)
+                downloaded[name]=blob
+            for name,payload in downloaded.items():
+                target=destination/name
+                tmp=destination/('.'+name+'.tmp')
+                try:
+                    tmp.write_bytes(payload)
+                    os.chmod(tmp,0o644)
+                    os.replace(tmp,target)
+                finally:
+                    tmp.unlink(missing_ok=True)
+            print('DRACO VIEWER: installed local decoder '+DRACO_VERSION+
+                  ' ('+str(sum(len(v) for v in downloaded.values()))+' bytes)',flush=True)
+            return destination
+        except (OSError,ValueError,InstallError) as exc:
+            errors.append(type(exc).__name__+': '+str(exc)[:160])
+    raise InstallError('Cannot provision local Draco GLB decoder under /static/decoders/draco/. '
+                       'Previous website retained. Sources: '+' / '.join(errors))
+
 def snapshot(token):
     path=BACKUPS/token
     if path.exists():raise InstallError('Snapshot name already exists')
@@ -685,6 +742,7 @@ def install(stage,version,token):
         release=prepare_release(stage,version)
         prepare_blender()
         verify_blender_optimiser(release)
+        prepare_draco_decoder(release)
         seed_admin(release)
         installed=prepare_gltf_transform()
         try:

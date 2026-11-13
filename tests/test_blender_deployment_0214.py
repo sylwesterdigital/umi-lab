@@ -11,7 +11,7 @@ class BlenderInstallTests(unittest.TestCase):
     def test_installer_enables_blender_before_cutover(self):
         source=(ROOT/'deploy/install.py').read_text()
         self.assertIn('prepare_blender()', source)
-        self.assertLess(source.index('        prepare_blender()\n        verify_blender_optimiser(release)\n        seed_admin(release)'),source.index('        write_atomic(UNIT,unit_source(port))'))
+        self.assertLess(source.index('        prepare_blender()\n        verify_blender_optimiser(release)\n        prepare_draco_decoder(release)\n        seed_admin(release)'),source.index('        write_atomic(UNIT,unit_source(port))'))
         self.assertIn('Environment=UMI_ENABLE_BLENDER=1',install.unit_source(5057))
         self.assertIn('ReadWritePaths=/var/lib/umi-lab',install.unit_source(5057))
 
