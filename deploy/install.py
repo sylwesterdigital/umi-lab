@@ -202,98 +202,137 @@ def prepare_blender():
     return binary
 
 
-def ensure_scoped_node():
-    """Install Node 22 for *UMI only* when system Node is absent or too old.
+def _service_command_works(args,env=None,timeout=12):
+    """Check binaries as the real UMI service account, not only as root."""
+    try:
+        result=run(['runuser','-u','umi-lab','--',*map(str,args)],timeout=timeout,
+                   check=False,env=env)
+        return result.returncode==0
+    except (OSError,subprocess.TimeoutExpired):
+        return False
 
-    Nothing is added to /usr/bin or other apps' services. Official release
-    archives are checked against nodejs.org's HTTPS SHA256 listing.
+
+def _node_runtime_env(node):
+    # npm and the glTF Transform shebang must resolve the same usable Node.
+    return {**os.environ,'PATH':str(Path(node).parent)+os.pathsep+
+            str(BASE/'tools'/'node-current'/'bin')+os.pathsep+
+            os.environ.get('PATH','/usr/bin:/bin'),
+            'npm_config_update_notifier':'false','npm_config_audit':'false',
+            'npm_config_fund':'false'}
+
+
+def ensure_scoped_node():
+    """Return a Node >=20 usable by *umi-lab*; never trust root-only nvm paths.
+
+    Other services never receive this PATH or these files. Official Node
+    downloads are SHA-256 verified before installing into /opt/umi-lab/tools.
     """
-    node=shutil.which('node');npm=shutil.which('npm')
-    if node and npm:
+    system_node=shutil.which('node');system_npm=shutil.which('npm')
+    if system_node and system_npm:
         try:
-            result=run([node,'--version'],timeout=8,check=False)
-            match=re.match(r'v(\d+)',result.stdout.strip())
-            if match and int(match.group(1))>=20:return node,npm
+            result=run([system_node,'--version'],timeout=8,check=False)
+            version=re.match(r'v(\d+)',result.stdout.strip())
+            env=_node_runtime_env(system_node)
+            if (version and int(version.group(1))>=20 and
+                _service_command_works([system_node,'--version'],env) and
+                _service_command_works([system_npm,'--version'],env)):
+                return system_node,system_npm
+            print('GLTF: system Node/npm inaccessible to umi-lab or too old; using isolated Node 22',flush=True)
         except (OSError,subprocess.TimeoutExpired):pass
     local=BASE/'tools'/'node-current'
     binary=local/'bin'/'node';npm_local=local/'bin'/'npm'
-    if binary.is_file() and npm_local.exists():return str(binary),str(npm_local)
+    if (binary.is_file() and npm_local.exists() and
+        _service_command_works([binary,'--version'],_node_runtime_env(binary)) and
+        _service_command_works([npm_local,'--version'],_node_runtime_env(binary))):
+        return str(binary),str(npm_local)
     import platform,hashlib,tarfile,urllib.request
     version='v22.16.0';machine=platform.machine().lower()
     arch={'x86_64':'x64','amd64':'x64','aarch64':'arm64','arm64':'arm64'}.get(machine)
-    if not arch:raise InstallError('Unsupported CPU architecture for optional scoped Node')
+    if not arch:raise InstallError('Unsupported CPU architecture for scoped Node')
     name=f'node-{version}-linux-{arch}.tar.xz'
     url=f'https://nodejs.org/dist/{version}/'
     def download(uri,limit):
-        with urllib.request.urlopen(uri,timeout=20) as resp:
-            data=resp.read(limit+1)
-        if len(data)>limit:raise InstallError('Optional Node download exceeded size limit')
+        with urllib.request.urlopen(uri,timeout=25) as response:
+            data=response.read(limit+1)
+        if len(data)>limit:raise InstallError('Node download exceeded size limit')
         return data
-    sums=download(url+'SHASUMS256.txt',120_000).decode('ascii')
-    digest=None
-    for row in sums.splitlines():
-        columns=row.strip().split()
-        if len(columns)==2 and columns[1]==name:digest=columns[0];break
-    if not digest or not re.fullmatch(r'[a-f0-9]{64}',digest):
-        raise InstallError('Node release checksum is missing')
-    blob=download(url+name,55*1024*1024)
-    if hashlib.sha256(blob).hexdigest()!=digest:
-        raise InstallError('Node archive SHA256 mismatch')
-    import io
     parent=BASE/'tools';parent.mkdir(parents=True,exist_ok=True)
     version_dir=parent/('node-'+version+'-'+arch)
-    if not version_dir.exists():
+    if not (version_dir/'bin/node').is_file():
+        sums=download(url+'SHASUMS256.txt',120_000).decode('ascii')
+        digest=None
+        for row in sums.splitlines():
+            columns=row.strip().split()
+            if len(columns)==2 and columns[1]==name:digest=columns[0];break
+        if not digest or not re.fullmatch(r'[a-f0-9]{64}',digest):
+            raise InstallError('Node release checksum missing')
+        blob=download(url+name,55*1024*1024)
+        if hashlib.sha256(blob).hexdigest()!=digest:
+            raise InstallError('Node archive SHA256 mismatch')
+        import io
         with tempfile.TemporaryDirectory(prefix='umi-node-',dir=parent) as staging:
             with tarfile.open(fileobj=io.BytesIO(blob),mode='r:xz') as archive:
                 members=archive.getmembers()
-                root=f'node-{version}-linux-{arch}/'
-                if any(not m.name.startswith(root) or '/..' in m.name or m.name.startswith('/')
-                       for m in members):raise InstallError('Node archive contains unsafe paths')
-                # Ubuntu 24.04 Python 3.12+ supports the hardened data filter.
+                prefix=f'node-{version}-linux-{arch}/'
+                if any(not m.name.startswith(prefix) or '/..' in m.name or m.name.startswith('/')
+                       for m in members):raise InstallError('Unsafe Node archive')
                 archive.extractall(path=staging,filter='data')
-            extracted=Path(staging)/root.rstrip('/')
+            extracted=Path(staging)/prefix.rstrip('/')
             if not (extracted/'bin/node').is_file() or not (extracted/'bin/npm').exists():
-                raise InstallError('Downloaded Node distribution is incomplete')
+                raise InstallError('Incomplete Node distribution')
+            if version_dir.exists():shutil.rmtree(version_dir)
             shutil.move(str(extracted),str(version_dir))
-    # A symlink switch changes only the UMI-owned scoped runtime.
-    pending=parent/'node-current.new'
-    if pending.exists() or pending.is_symlink():pending.unlink()
-    pending.symlink_to(version_dir.name)
-    os.replace(pending,local)
-    print('GLTF: UMI-only Node runtime installed: '+version,flush=True)
+    candidate=parent/'node-current.new';candidate.unlink(missing_ok=True)
+    candidate.symlink_to(version_dir.name);os.replace(candidate,local)
+    env=_node_runtime_env(binary)
+    if not (_service_command_works([binary,'--version'],env) and
+            _service_command_works([npm_local,'--version'],env)):
+        raise InstallError('Scoped Node/npm cannot execute as umi-lab')
+    print('GLTF: UMI-only Node runtime verified as umi-lab: '+version,flush=True)
     return str(binary),str(npm_local)
 
 
 def prepare_gltf_transform():
-    """Install the Draco/Meshopt/KTX2 fallback into an app-local directory.
+    """Provision a scoped CLI and expose exact npm errors without blocking the site.
 
-    Native Blender and Pillow WebP do not depend on this optional tool.
+    Codec dependencies are optional: a failure must never take an existing
+    UMI service offline. The UI can accurately disable unavailable encoders.
     """
     destination=BASE/'tools'/'gltf-transform'
     existing=destination/'node_modules'/'.bin'/'gltf-transform'
     try:
         node,npm=ensure_scoped_node()
-        env={**os.environ,'PATH':str(BASE/'tools'/'node-current'/'bin')+os.pathsep+os.environ.get('PATH','/usr/bin:/bin')}
-        if existing.is_file():
-            check=run([existing,'--version'],timeout=12,check=False,env=env)
-            if check.returncode==0:
-                print('GLTF: installed Draco/Meshopt/KTX2 fallback verified',flush=True)
-                return True
+        env=_node_runtime_env(node)
+        if existing.is_file() and _service_command_works([existing,'--version'],env):
+            print('GLTF: existing encoder executable verified as umi-lab',flush=True)
+            return True
         destination.mkdir(parents=True,exist_ok=True)
-        result=run([npm,'--prefix',str(destination),'install','--no-save','--no-audit','--no-fund',
-                    '@gltf-transform/cli@4.5.0'],timeout=185,check=False,env=env)
-        if result.returncode or not existing.is_file():
-            print('GLTF: optional compression install unavailable; Blender/Pillow remain usable: '+
-                  (result.stderr or result.stdout)[-180:],flush=True)
-            return False
-        check=run([existing,'--version'],timeout=12,check=False,env=env)
-        if check.returncode:
-            print('GLTF: installed CLI failed its runtime verification',flush=True)
-            return False
-        print('GLTF: Draco/Meshopt/KTX2 fallback ready',flush=True)
-        return True
+        # First attempt is the normal scoped package install. If the registry
+        # briefly times out, retry with a fresh npm cache and the official
+        # registry explicitly specified. Do not modify other projects' npm.
+        last_error=''
+        attempts=[['--prefer-offline','--fetch-retries=2'],
+                  ['--prefer-online','--fetch-retries=1','--registry=https://registry.npmjs.org/']]
+        for i,flags in enumerate(attempts,1):
+            args=[npm,'--prefix',str(destination),'install','--no-save',
+                  '--no-audit','--no-fund','--no-progress',*flags,
+                  '@gltf-transform/cli@4.5.0']
+            try:
+                result=run(args,timeout=150,check=False,env=env)
+                if result.returncode==0 and existing.is_file() and _service_command_works([existing,'--version'],env):
+                    print('GLTF: Draco/Meshopt CLI installed and verified as umi-lab',flush=True)
+                    return True
+                detail=(result.stderr or result.stdout or 'npm returned no diagnostics')
+                last_error='exit '+str(result.returncode)+': '+detail.strip()[-650:]
+                if result.returncode==0 and existing.is_file():
+                    last_error='CLI installed, but umi-lab cannot execute it (Node PATH or permissions)'
+            except subprocess.TimeoutExpired:
+                last_error='npm install exceeded 150s (network or registry timeout)'
+            print(f'GLTF: scoped npm attempt {i} failed: {last_error}',flush=True)
+        print('GLTF WARNING: fallback encoder unavailable; native Blender and WebP remain usable. '+last_error,flush=True)
+        return False
     except (OSError,subprocess.TimeoutExpired,InstallError,ValueError) as error:
-        print('GLTF: optional codecs unavailable; native Blender and WebP still work: '+str(error)[:150],flush=True)
+        print('GLTF WARNING: scoped Node/npm unavailable: '+str(error)[:450],flush=True)
         return False
 
 def _blender_sample_glb():
@@ -641,25 +680,36 @@ def install(stage,version,token):
     prepare_identity()
     snap,record=snapshot(token)
     release=None
+    switched=False
     try:
         release=prepare_release(stage,version)
         prepare_blender()
         verify_blender_optimiser(release)
         seed_admin(release)
-        prepare_gltf_transform()
-        verify_draco_runtime(release)
+        installed=prepare_gltf_transform()
+        try:
+            verify_draco_runtime(release)
+        except InstallError as codec_error:
+            # An optional codec must never make the entire website unavailable.
+            # The UI queries actual availability and disables only Draco.
+            print('DRACO WARNING: '+str(codec_error)[:900],flush=True)
+            print('DRACO: unavailable for this release; site and other codecs remain functional',flush=True)
         write_atomic(UNIT,unit_source(port))
         link=BASE/'current';temp=BASE/'.next-current'
         temp.unlink(missing_ok=True);temp.symlink_to(release)
         os.replace(temp,link)
+        switched=True
         run(['systemctl','daemon-reload']);run(['systemctl','enable',SERVICE]);run(['systemctl','restart',SERVICE])
         http_health(port,version)
         configure_nginx(port)
         print(f'DEPLOYED {version}; Flask healthy; SQLite preserved; port={port}; backup={snap}',flush=True)
         print('PUBLIC URL: https://umi-lab.top',flush=True)
     except Exception:
-        try:rollback(snap,record)
-        except Exception as error:print('ROLLBACK WARNING: '+str(error),file=sys.stderr)
+        if switched:
+            try:rollback(snap,record)
+            except Exception as error:print('ROLLBACK WARNING: '+str(error),file=sys.stderr)
+        else:
+            print('PRE-ACTIVATION FAILED: previous UMI site left running without restart',file=sys.stderr)
         # Only dispose of this failed attempt, never the restored prior release.
         if release and release.is_dir() and record.get('old_current')!=str(release):
             shutil.rmtree(release,ignore_errors=True)

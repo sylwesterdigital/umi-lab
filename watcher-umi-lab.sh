@@ -127,7 +127,7 @@ def admin_password():
 
 VERSION_RE=re.compile(r'^\d+\.\d+\.\d+$')
 ZIP_RE=re.compile(r'^UMI_LAB_(?:UPDATE|RELEASE)_v(\d+\.\d+\.\d+)\.zip$')
-WATCHER_BUILD='0.1.3'
+WATCHER_BUILD='0.1.4'
 LOG=None
 VERBOSE=False
 COLOR='auto'
@@ -256,14 +256,19 @@ def validate(archive,stage):
             raise ArchiveError('HTML version mismatch')
         if not all(x in html for x in ('galleryGrid','settingsDrawer','promptForm','partsPane','viewerPane')):
             raise ArchiveError('Missing studio interface elements')
-        for p in (stage/'app').rglob('*.py'):
-            run(['python3','-m','py_compile',p],timeout=20)
+        # Compile in a single interpreter, avoiding dozens of slow process
+        # startups on constrained hosts while still checking every source file.
+        run(['python3','-m','compileall','-q',stage/'app'],timeout=60)
         for p in (stage/'app/frontend/js').glob('*.js'):
             run(['node','--check',p],timeout=20)
         # The no-dependency DB and deployment tests run locally; any skipped Flask
         # tests are mandatory on the Ubuntu server after pip install.
         tests=run(['python3','-m','unittest','discover','-s','tests','-v'],cwd=stage/'app',timeout=60)
-        if 'FAILED' in tests.stderr or 'FAILED' in tests.stdout:raise ArchiveError('Local test suite did not pass')
+        # `run` already rejects a nonzero exit status. An expected failure
+        # deliberately exercised by a passing regression test must not invalidate
+        # an otherwise successful release. Require the actual unittest summary.
+        if not re.search(r'(?m)^Ran [0-9]+ tests? in ',tests.stderr) or not re.search(r'(?m)^OK(?: \(skipped=[0-9]+\))?$',tests.stderr):
+            raise ArchiveError('Local unittest summary missing despite exit code 0')
         log('Python, JavaScript, checksums, ontology and local tests passed','PASS')
         if 'skipped=' in tests.stderr:log('Flask integration tests skipped locally (no Flask); server must pass all','WARN')
         for cache in (stage/'app').rglob('__pycache__'):
@@ -580,7 +585,9 @@ def main():
     log('Settings persist at '+str(CONFIG_PATH)+'; run --configure only to change them')
     retry={}
     while True:
-        candidates=sorted(UPDATES.glob('*.zip'))
+        # Newest candidate first. A previously failed release must never delay
+        # a corrected ZIP that has already arrived in the updates directory.
+        candidates=sorted(UPDATES.glob('*.zip'),key=lambda p: vt(ZIP_RE.fullmatch(p.name).group(1)) if ZIP_RE.fullmatch(p.name) else (0,0,0),reverse=True)
         if (args.once or args.dry_run) and not candidates:
             log('No UMI LAB update ZIP in updates/','WARN');return 1
         failed=False

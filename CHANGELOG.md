@@ -1,3 +1,16 @@
+## 0.2.24 — Watcher test-output fix and safe release selection
+- Fix the 0.2.23 macOS watcher false rejection: capture an expected installer diagnostic inside its passing regression test.
+- Bundle watcher v0.1.4: use unittest exit status and summary instead of searching diagnostic text for `FAILED`.
+- Prioritise the newest available release so an older, repeatedly failing archive does not block a corrected update.
+- Preserve Git, SQLite, generated images/models and existing user configuration.
+
+## 0.2.23 — Non-disruptive Draco deployment and scoped Node provisioning
+- Fix root-only Node/npm selection: the fallback runtime must be runnable as the umi-lab service user.
+- Retry installation of the app-scoped glTF Transform CLI and report exact npm errors in deployment logs.
+- Verify Draco with a real encoded GLB; if unavailable, leave that codec disabled without blocking the entire release.
+- Preserve the running website on pre-activation failure without unnecessary systemd restart.
+- Preserve all projects, SQLite data, uploads, and existing 3D models.
+
 ## 0.2.22 — Verified Draco and independent texture quality
 - Verify the actual Draco compressor under the UMI service account during installation; fail safely with a specific error instead of silently deploying disabled Draco.
 - Prefer managed glTF Transform fallback when Blender build lacks native Draco; verify KHR_draco_mesh_compression in actual output.
