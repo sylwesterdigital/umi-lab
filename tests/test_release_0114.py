@@ -18,6 +18,7 @@ class TabletopRegressionTests(unittest.TestCase):
     def test_preserve_legacy_data_without_legacy_ui(self):
         js=(ROOT/'frontend/js/app.js').read_text()
         self.assertIn("localStorage.setItem(lastKey,id)",js)
-        self.assertIn("if(project?.settings?.tabletop?.nodes?.length)",js)
+        self.assertIn('if(project)await loadProject(saved)',js)
         self.assertIn('renderSources()',js)
-        self.assertIn('selected_asset:nodeAsset(byId(state.hero))?.id||null',js)
+        self.assertIn('collab/board',js)
+        self.assertIn('state.collabBase=structuredClone',js)

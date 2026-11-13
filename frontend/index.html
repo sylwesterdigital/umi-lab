@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#16191c">
-  <meta name="umi-version" content="0.2.26">
+  <meta name="umi-version" content="0.2.27">
   <title>UMI LAB — Object table</title>
   <link rel="stylesheet" href="/static/css/styles.css">
   <script defer src="/static/js/canvas-layouts.js"></script>
@@ -17,7 +17,7 @@
 <body>
   <main id="studio">
     <header class="topbar">
-      <div class="brand"><button id="homeButton" title="Return to the table" type="button">UMI LAB</button><button id="versionButton" title="Release notes" type="button">0.2.26</button></div>
+      <div class="brand"><button id="homeButton" title="Return to the table" type="button">UMI LAB</button><button id="versionButton" title="Release notes" type="button">0.2.27</button></div>
       <div class="top-controls"><button id="workspaceButton" type="button" title="Workspace, models and projects">Workspace <span aria-hidden="true">⌄</span></button><button id="profileButton" type="button" title="Profile"><span id="profileInitial">○</span><img id="profileImage" alt="" hidden></button></div>
     </header>
 
@@ -26,11 +26,11 @@
       <div id="boardWorld">
         <svg id="links" aria-hidden="true" viewBox="-5000 -5000 10000 10000" width="10000" height="10000"><g id="linkLines"></g></svg>
         <div id="pictures"></div><svg id="meshLinks" aria-hidden="true" style="position:absolute;left:-5000px;top:-5000px;overflow:visible;pointer-events:none" width="10000" height="10000" viewBox="-5000 -5000 10000 10000"></svg><div id="meshCards" style="position:absolute;left:0;top:0"></div>
-        <div id="packShelf" class="pack-shelf" hidden aria-label="Photo envelopes on canvas"></div>
+        <div id="collabCursorLayer" aria-hidden="true"></div><div id="packShelf" class="pack-shelf" hidden aria-label="Photo envelopes on canvas"></div>
       </div>
       <div id="marquee" class="canvas-marquee" hidden aria-hidden="true"></div>
       <div id="emptyState"><h1>What would you like to create?</h1><p>A vehicle, person, object, product or scene. Describe it or drop in an image.</p></div>
-      <div id="boardHelp" hidden>Drag photos to arrange · drag empty space to pan · scroll to zoom</div>
+      <div id="boardPeers" aria-live="polite" hidden>Only you on this board</div><div id="boardHelp" hidden>Drag photos to arrange · drag empty space to pan · scroll to zoom</div>
     </section>
 
     <div id="photoActions" class="photo-actions" hidden>
@@ -123,7 +123,27 @@
     <aside id="drawer" class="drawer" hidden aria-label="Workspace drawer">
       <div class="drawer-top"><h2 id="drawerTitle">Workspace</h2><button id="drawerClose" type="button" title="Close">×</button></div>
       <nav class="drawer-tabs" aria-label="Workspace sections"><button data-tab="projects" type="button">Projects</button><button data-tab="sources" type="button">Images</button><button data-tab="packs" type="button">Packs</button><button data-tab="analysis" type="button">Analysis</button><button data-tab="mesh" type="button">3D</button><button data-tab="models" type="button">Models</button><button data-tab="logs" type="button">Activity</button><button data-tab="appearance" type="button">Theme</button><button data-tab="updates" type="button">Updates</button><button data-tab="shares" type="button">Shares</button></nav>
-      <section id="tab-projects" class="tab-content" hidden><div class="button-row"><button id="newProject" class="subtle-primary" type="button">New blank table</button><button id="exportProject" type="button">Export project kit</button></div><div id="projectsList" class="stack"></div></section>
+      <section id="tab-projects" class="tab-content" hidden>
+        <p class="quiet" id="activeBoardName">No board selected</p>
+        <div class="button-row"><button id="newProject" class="subtle-primary" type="button">+ New blank board</button><button id="refreshBoard" type="button">Refresh board</button><button id="exportProject" type="button">Export project kit</button></div>
+        <div id="projectsList" class="stack" aria-label="Your boards"></div>
+        <div class="collab-panel">
+          <h3>Join a shared board</h3>
+          <p class="quiet">Open an invitation link or paste the invite code. Enter the PIN supplied by the board owner separately.</p>
+          <form id="joinBoardForm" class="stack"><label>Invitation token<input id="joinBoardToken" autocomplete="off" spellcheck="false" maxlength="128" placeholder="Invitation code from link"></label><label>Invitation PIN<input id="joinBoardPin" type="password" inputmode="numeric" autocomplete="off" pattern="[0-9]{6,12}" placeholder="6–12 digits" required></label><button type="submit" class="subtle-primary">Join board</button></form>
+        </div>
+        <div id="boardOwnerTools" class="collab-panel" hidden>
+          <h3>Invite collaborators</h3>
+          <p class="quiet">Editors can move and edit canvas items and upload files. Share the PIN through a separate channel. Links expire after 7 days by default.</p>
+          <form id="inviteBoardForm" class="stack"><label>Invitation PIN (6–12 digits)<input id="inviteBoardPin" type="password" inputmode="numeric" pattern="[0-9]{6,12}" minlength="6" maxlength="12" autocomplete="new-password" required></label><label>Link expires<select id="inviteBoardDays"><option value="7">7 days</option><option value="1">24 hours</option></select></label><button type="submit" class="subtle-primary">Create invite link</button></form>
+          <div id="createdInvite" hidden><p class="quiet">Copy this link now; it is only shown once.</p><input id="inviteBoardUrl" readonly aria-label="Invite link"><button id="copyBoardInvite" type="button">Copy invitation link</button></div>
+          <div id="boardInviteList" class="stack" aria-label="Existing invitations"></div>
+          <h3>Board members</h3><div id="boardMemberList" class="stack"></div>
+          <h3>Link boards (no files moved)</h3><p class="quiet">Connect two boards you own for quick switching. This does not merge their contents or permissions.</p>
+          <div class="button-row"><select id="linkBoardSelect" aria-label="Board to link"></select><button id="linkBoardButton" type="button">Link</button></div>
+        </div>
+        <div id="linkedBoardPanel" class="collab-panel" hidden><h3>Linked boards</h3><div id="linkedBoardList" class="stack"></div></div>
+      </section>
       <section id="tab-sources" class="tab-content" hidden><p class="quiet">Images stay on the server even when removed from the table.</p><input id="imageSearch" type="search" placeholder="Search image names, systems and views…" aria-label="Search images"><label>Filter<select id="imageFilter"><option value="all">All saved images</option><option value="angle">Angles</option><option value="component">Parts</option><option value="reference">References</option></select></label><div id="sourceCount" class="quiet"></div><div id="sourceList" class="source-grid"></div></section>
       <section id="tab-packs" class="tab-content" hidden><div id="packList" class="pack-list"></div><div id="packDetail" hidden><form id="packForm" class="stack"><label>Pack name<input id="packName" maxlength="75"></label><label>Notes<input id="packNotes" maxlength="320"></label><button type="submit" class="subtle-primary">Save pack</button></form><div id="packStats" class="quiet"></div><div id="packItems" class="pack-items"></div><div class="button-row"><button id="packToBoard" type="button">Show pack on canvas</button><button id="deletePack" type="button" class="quiet-danger">Remove pack</button></div></div></section>
       <section id="tab-analysis" class="tab-content" hidden><p class="quiet">Visual analysis is optional. It does not identify a person or verify product prices. Select a saved photo and choose Analyze.</p><div id="analysisResults" class="stack"></div></section>

@@ -1,3 +1,14 @@
+## 0.2.27 — Independent boards and secure collaboration
+
+- Create named, blank boards, reopen them reliably, switch among owned/invited boards.
+- Generate time-limited invitation links with separately shared 6–12 digit PINs; hashed tokens, PIN attempt limits, revocation, membership removal.
+- Link boards you own non-destructively for quick switching without copying data or extending access.
+- Display live names and cursors using 850 ms pointer throttling and 2.8 s state polling.
+- Add short-lived object editing leases and SQLite item-level merge/conflict detection to protect concurrent edits.
+- Invited editors can view shared media/3D models and upload files, but cannot change owner-level project settings, start generation under owner credentials, or delete projects.
+- Preserve existing independent Ubuntu services and data; only UMI LAB has additive schema migration and new UI.
+- Shared-board undo/redo is disabled to avoid undoing collaborators' work; solo history remains supported.
+
 ## 0.2.26 — Draco encoder installation reliability
 
 - Provision glTF Transform under the `umi-lab` system account, using UMI-owned directories and an isolated npm cache.

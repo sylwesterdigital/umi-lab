@@ -57,6 +57,8 @@ app.config.update(SECRET_KEY=SESSION_KEY,MAX_CONTENT_LENGTH=70*1024*1024,
                   SESSION_COOKIE_SECURE=os.environ.get('UMI_HTTPS','0')=='1',
                   PERMANENT_SESSION_LIFETIME=60*60*24*14)
 store.init(DATA)
+from . import collaboration
+collaboration.setup(store, DATA)
 PARTS=json.loads((ROOT/'parts.json').read_text())
 OBJECT_CATALOG=json.loads((ROOT/'object_catalog.json').read_text())
 LOG_DIR=DATA/'logs';LOG_DIR.mkdir(mode=0o700,parents=True,exist_ok=True)
@@ -77,7 +79,7 @@ def user_info(row):
 
 @app.after_request
 def audit(resp):
-    if request.path.startswith('/api/') and not request.path.startswith(('/api/logs','/api/health','/api/session')):
+    if request.path.startswith('/api/') and '/collab/' not in request.path and not request.path.startswith(('/api/logs','/api/health','/api/session','/api/invitations/join')):
         if request.method!='GET' or resp.status_code>=400:
             actor=session.get('uid')
             action=f'{request.method} {request.url_rule.rule if request.url_rule else "/api/unknown"}'
@@ -257,6 +259,8 @@ def authenticated(fn):
         return fn(*args,**kwargs)
     return inner
 
+collaboration.register(app, store, DATA, authenticated)
+
 @app.route('/api/profile',methods=['GET','PUT'])
 @authenticated
 def profile():
@@ -425,15 +429,23 @@ def projects():
             if kind not in ('car','motorcycle','aircraft','boat','drone','robot','other','person','room','product','machine','object'):kind='other'
             pid=store.create_project(conn,session['uid'],name,prompt,kind)
             return jsonify(id=pid),201
-        rows=conn.execute('SELECT * FROM projects WHERE user_id=? ORDER BY updated_at DESC LIMIT 80',(session['uid'],)).fetchall()
-    return jsonify(projects=[store.serialize_project(row) for row in rows])
+        if request.args.get('summary')=='1':
+            # Avoid shipping up to 80 large canvas JSON documents merely to draw the switcher.
+            rows=conn.execute('''SELECT p.id,p.user_id,p.name,p.kind,p.updated_at,
+                CASE WHEN json_valid(p.settings) THEN COALESCE(json_array_length(p.settings,'$.tabletop.nodes'),0) ELSE 0 END AS item_count
+                FROM projects p WHERE p.user_id=? OR EXISTS (SELECT 1 FROM project_members m WHERE m.project_id=p.id AND m.user_id=?)
+                ORDER BY p.updated_at DESC LIMIT 80''',(session['uid'],session['uid'])).fetchall()
+            return jsonify(projects=[{**dict(row),'is_owner':row['user_id']==session['uid']} for row in rows])
+        rows=conn.execute('''SELECT p.* FROM projects p WHERE p.user_id=? OR EXISTS (SELECT 1 FROM project_members m WHERE m.project_id=p.id AND m.user_id=?) ORDER BY p.updated_at DESC LIMIT 80''',(session['uid'],session['uid'])).fetchall()
+    return jsonify(projects=[{**store.serialize_project(row),'is_owner':row['user_id']==session['uid']} for row in rows])
 
 @app.route('/api/projects/<pid>',methods=['GET','PATCH','DELETE'])
 @authenticated
 def project_detail(pid):
     with store.connect(DATA) as conn:
-        row=store.project_for(conn,session['uid'],pid)
+        row=collaboration.accessible(conn,session['uid'],pid)
         if not row:abort(404)
+        if request.method in ('PATCH','DELETE') and row['user_id']!=session['uid']:abort(403,'Only project owner may change project settings')
         if request.method=='DELETE':
             # Remove media after successful DB deletion; random opaque filenames only.
             media=[r['filename'] for r in conn.execute('SELECT filename FROM assets WHERE project_id=?',(pid,))]
@@ -452,7 +464,7 @@ def project_detail(pid):
             selected=body.get('selected_asset',row['selected_asset'])
             if selected and not conn.execute('SELECT 1 FROM assets WHERE id=? AND project_id=?',(selected,pid)).fetchone():
                 return jsonify(error='Unknown asset'),400
-            conn.execute('UPDATE projects SET name=?,prompt=?,kind=?,settings=?,selected_asset=?,updated_at=? WHERE id=?',
+            conn.execute('UPDATE projects SET name=?,prompt=?,kind=?,settings=?,selected_asset=?,updated_at=?,board_version=board_version+1 WHERE id=?',
                (name or 'Untitled project',prompt,kind,json.dumps(settings),selected,int(time.time()),pid));conn.commit()
             row=store.project_for(conn,session['uid'],pid)
         assets=[dict(r) for r in conn.execute('SELECT id,view,source,mime,created_at FROM assets WHERE project_id=? ORDER BY created_at DESC',(pid,))]
@@ -465,7 +477,7 @@ def project_detail(pid):
         if asset['mime'].startswith(('audio/','video/')):
             if (MEDIA/'hls'/asset['id']/'index.m3u8').is_file():asset['hls_url']='/api/media/'+asset['id']+'/hls/index.m3u8'
             if list(MEDIA.glob(asset['id']+'.original.*')):asset['original_url']='/api/media/'+asset['id']+'/original'
-    return jsonify(project=store.serialize_project(row),assets=assets,messages=messages)
+    return jsonify(project={**store.serialize_project(row),'is_owner':row['user_id']==session['uid']},assets=assets,messages=messages)
 
 @app.post('/api/projects/<pid>/analyze')
 @authenticated
@@ -532,7 +544,7 @@ def visual_query(pid):
 @authenticated
 def canvas_history(pid):
     with store.connect(DATA) as conn:
-        if not store.project_for(conn,session['uid'],pid):abort(404)
+        if not collaboration.accessible(conn,session['uid'],pid):abort(404)
         cursor=conn.execute('SELECT revision_id FROM canvas_revision_cursor WHERE project_id=?',(pid,)).fetchone()
         entries=conn.execute('SELECT id,action,created_at FROM canvas_revisions WHERE project_id=? ORDER BY id',(pid,)).fetchall()
         if request.method=='GET':
@@ -540,6 +552,8 @@ def canvas_history(pid):
         body=request.get_json(silent=True) or {}
         direction=body.get('direction')
         if direction in ('undo','redo'):
+            if not store.project_for(conn,session['uid'],pid) or conn.execute('SELECT 1 FROM project_members WHERE project_id=?',(pid,)).fetchone():
+                return jsonify(error='Shared project undo is disabled to protect collaborators'),409
             if not cursor:return jsonify(error='No saved history yet'),409
             sql=('SELECT id,snapshot FROM canvas_revisions WHERE project_id=? AND id<? ORDER BY id DESC LIMIT 1' if direction=='undo' else
                  'SELECT id,snapshot FROM canvas_revisions WHERE project_id=? AND id>? ORDER BY id ASC LIMIT 1')
@@ -690,7 +704,7 @@ def upload():
     blob=file.read(MAX_UPLOAD+1)
     if not blob or len(blob)>MAX_UPLOAD:return jsonify(error='File exceeds 22 MB'),400
     with store.connect(DATA) as conn:
-        if not store.project_for(conn,session['uid'],pid):abort(404)
+        if not collaboration.accessible(conn,session['uid'],pid):abort(404)
         if mime in ('image/jpeg','image/png','image/webp'):
             aid,err=save_asset(conn,pid,blob,mime,'reference','upload')
             if err:return jsonify(error=err),400
@@ -833,8 +847,8 @@ def create_region_asset():
 @authenticated
 def media_thumbnail(asset_id):
     with store.connect(DATA) as conn:
-        row=conn.execute('SELECT a.mime FROM assets a JOIN projects p ON p.id=a.project_id WHERE a.id=? AND p.user_id=?',
-                         (asset_id,session['uid'])).fetchone()
+        row=conn.execute('SELECT a.mime FROM assets a JOIN projects p ON p.id=a.project_id WHERE a.id=? AND (p.user_id=? OR EXISTS (SELECT 1 FROM project_members m WHERE m.project_id=p.id AND m.user_id=?))',
+                         (asset_id,session['uid'],session['uid'])).fetchone()
     if not row or row['mime']!='application/pdf':abort(404)
     file=MEDIA/(asset_id+'.preview.png')
     if not file.is_file():abort(404)
@@ -844,8 +858,8 @@ def media_thumbnail(asset_id):
 @authenticated
 def media_text(asset_id):
     with store.connect(DATA) as conn:
-        row=conn.execute('SELECT a.mime FROM assets a JOIN projects p ON p.id=a.project_id WHERE a.id=? AND p.user_id=?',
-                         (asset_id,session['uid'])).fetchone()
+        row=conn.execute('SELECT a.mime FROM assets a JOIN projects p ON p.id=a.project_id WHERE a.id=? AND (p.user_id=? OR EXISTS (SELECT 1 FROM project_members m WHERE m.project_id=p.id AND m.user_id=?))',
+                         (asset_id,session['uid'],session['uid'])).fetchone()
     if not row or row['mime'] not in ('application/pdf','text/plain','text/markdown'):abort(404)
     file=MEDIA/(asset_id+'.txt') if row['mime']=='application/pdf' else None
     if file is None:
@@ -859,7 +873,7 @@ def media_text(asset_id):
 def media_original(asset_id):
     with store.connect(DATA) as conn:
         asset=conn.execute('''SELECT 1 FROM assets a JOIN projects p ON p.id=a.project_id
-         WHERE a.id=? AND p.user_id=?''',(asset_id,session['uid'])).fetchone()
+         WHERE a.id=? AND (p.user_id=? OR EXISTS (SELECT 1 FROM project_members m WHERE m.project_id=p.id AND m.user_id=?))''',(asset_id,session['uid'],session['uid'])).fetchone()
     if not asset:abort(404)
     candidates=list(MEDIA.glob(asset_id+'.original.*'))
     if len(candidates)!=1:abort(404)
@@ -871,7 +885,7 @@ def media_hls(asset_id,filename):
     if not re.fullmatch(r'(?:index\.m3u8|seg_\d{4}\.ts)',filename):abort(404)
     with store.connect(DATA) as conn:
         owned=conn.execute('''SELECT 1 FROM assets a JOIN projects p ON p.id=a.project_id
-           WHERE a.id=? AND p.user_id=? AND (a.mime LIKE 'audio/%' OR a.mime LIKE 'video/%')''',(asset_id,session['uid'])).fetchone()
+           WHERE a.id=? AND (p.user_id=? OR EXISTS (SELECT 1 FROM project_members m WHERE m.project_id=p.id AND m.user_id=?)) AND (a.mime LIKE 'audio/%' OR a.mime LIKE 'video/%')''',(asset_id,session['uid'],session['uid'])).fetchone()
     if not owned:abort(404)
     folder=MEDIA/'hls'/asset_id
     file=folder/filename
@@ -973,7 +987,7 @@ def transcribe_owned_audio(pid):
 def media(asset_id):
     with store.connect(DATA) as conn:
         row=conn.execute('''SELECT a.filename,a.mime FROM assets a JOIN projects p ON p.id=a.project_id
-         WHERE a.id=? AND p.user_id=?''',(asset_id,session['uid'])).fetchone()
+         WHERE a.id=? AND (p.user_id=? OR EXISTS (SELECT 1 FROM project_members m WHERE m.project_id=p.id AND m.user_id=?))''',(asset_id,session['uid'],session['uid'])).fetchone()
     if not row:abort(404)
     response=send_from_directory(str(MEDIA),row['filename'],mimetype=row['mime'],max_age=0)
     if row['mime']=='application/pdf':
@@ -1393,11 +1407,12 @@ def reimport_model_textures(pid,task_id):
 @authenticated
 def list_mesh_tasks(pid):
     with store.connect(DATA) as conn:
-        if not store.project_for(conn,session['uid'],pid):abort(404)
-        rows=conn.execute('SELECT id,asset_id,provider,label,status,model_file,error,credits_est,created_at,updated_at FROM mesh_tasks WHERE project_id=? AND user_id=? ORDER BY created_at DESC',(pid,session['uid'])).fetchall()
+        access=collaboration.accessible(conn,session['uid'],pid)
+        if not access:abort(404)
+        rows=conn.execute('SELECT id,asset_id,provider,label,status,model_file,error,credits_est,created_at,updated_at FROM mesh_tasks WHERE project_id=? ORDER BY created_at DESC',(pid,)).fetchall()
     with store.connect(DATA) as conn:
         history={r['task_id']:dict(r) for r in conn.execute("""SELECT m.* FROM mesh_optimisations m JOIN mesh_tasks t ON t.id=m.task_id
-                      WHERE t.project_id=? AND t.user_id=?""",(pid,session['uid']))}
+                      WHERE t.project_id=?""",(pid,))}
     tasks=[]
     for row in rows:
         task=dict(row)
@@ -1501,7 +1516,7 @@ def refresh_mesh_task(task_id):
 @authenticated
 def preview_mesh_task(task_id):
     with store.connect(DATA) as conn:
-        row=conn.execute('SELECT id,model_file FROM mesh_tasks WHERE id=? AND user_id=?',(task_id,session['uid'])).fetchone()
+        row=conn.execute('''SELECT t.id,t.model_file FROM mesh_tasks t JOIN projects p ON t.project_id=p.id WHERE t.id=? AND (p.user_id=? OR EXISTS(SELECT 1 FROM project_members m WHERE m.project_id=p.id AND m.user_id=?))''',(task_id,session['uid'],session['uid'])).fetchone()
     if not row or not row['model_file']:abort(404)
     blob=preview_blob(MESHES/row['model_file'],mesh_preview_path(task_id))
     if blob is None:
@@ -1512,7 +1527,7 @@ def preview_mesh_task(task_id):
 @authenticated
 def download_mesh_task(task_id):
     with store.connect(DATA) as conn:
-        row=conn.execute('SELECT model_file,label FROM mesh_tasks WHERE id=? AND user_id=?',(task_id,session['uid'])).fetchone()
+        row=conn.execute('''SELECT t.model_file,t.label FROM mesh_tasks t JOIN projects p ON t.project_id=p.id WHERE t.id=? AND (p.user_id=? OR EXISTS(SELECT 1 FROM project_members m WHERE m.project_id=p.id AND m.user_id=?))''',(task_id,session['uid'],session['uid'])).fetchone()
     if not row or not row['model_file']:abort(404)
     path=MESHES/row['model_file']
     if not path.is_file():abort(404)

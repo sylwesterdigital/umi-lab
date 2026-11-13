@@ -35,9 +35,15 @@ class BlenderInstallTests(unittest.TestCase):
         def which(name):return next(paths) if name=='blender' else '/usr/bin/apt-get'
         class Disk:
             free=5_000_000_000
-        with patch.object(install.shutil,'which',side_effect=which),patch.object(install.shutil,'disk_usage',return_value=Disk()),patch.object(install,'run',return_value=Response()) as call:
+        with patch.object(install.shutil,'which',side_effect=which),patch.object(install.shutil,'disk_usage',return_value=Disk()),patch.object(install,'run',return_value=Response()) as call, patch.dict('os.environ',{'UMI_ALLOW_SYSTEM_APT':'1'}):
             self.assertEqual(install.prepare_blender(),'/usr/bin/blender')
         self.assertIn('apt-get',call.call_args_list[0].args[0][0]);self.assertEqual(call.call_count,2)
+
+    def test_absent_blender_never_installs_apt_by_default(self):
+        with patch.object(install.shutil,'which',return_value=None), patch.object(install,'run') as calls, patch.dict('os.environ',{'UMI_ALLOW_SYSTEM_APT':'0'}):
+            with self.assertRaisesRegex(install.InstallError,'shared-host safety'):
+                install.prepare_blender()
+            calls.assert_not_called()
 
     def test_headless_check_is_required(self):
         class Response:

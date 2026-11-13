@@ -33,7 +33,7 @@ class FolderPointer0213(unittest.TestCase):
         self.assertNotIn('setView(',block)
 
     def test_add_menu_tracks_pointer_and_aligns_right_edge(self):
-        self.assertIn("document.addEventListener('pointermove',e=>{addMenuPointer.x=e.clientX;addMenuPointer.y=e.clientY;}",self.js)
+        self.assertIn("document.addEventListener('pointermove',e=>{addMenuPointer.x=e.clientX;addMenuPointer.y=e.clientY;collabMove(e);}",self.js)
         block=self.js.split('function positionAddMenu(){',1)[1].split('\nfunction toggleAddMenu',1)[0]
         self.assertIn('anchorX-width',block)
         self.assertIn('window.innerHeight-height-gap',block)

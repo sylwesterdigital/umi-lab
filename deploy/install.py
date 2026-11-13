@@ -171,14 +171,22 @@ WantedBy=multi-user.target
 '''
 
 
-def prepare_blender():
-    """Install Blender via Ubuntu APT only when absent, then verify headless bpy.
+def _allow_system_apt():
+    """Explicit operator opt-in for shared-host system package mutations."""
+    return os.environ.get('UMI_ALLOW_SYSTEM_APT')=='1'
 
-    This intentionally does not upgrade other packages or touch other services.
-    Run before switching the current UMI release to keep deployment atomic.
+
+def prepare_blender():
+    """Verify Blender; never mutate shared Ubuntu APT by default.
+
+    An explicit UMI_ALLOW_SYSTEM_APT=1 is required for a fresh machine where
+    Blender must be installed. Existing production releases remain untouched
+    if this prerequisite is missing.
     """
     binary=shutil.which('blender')
     if not binary:
+        if not _allow_system_apt():
+            raise InstallError('Blender missing; shared-host safety blocks automatic APT. Install it manually during a maintenance window or explicitly set UMI_ALLOW_SYSTEM_APT=1.')
         if not shutil.which('apt-get'):
             raise InstallError('Blender missing; APT is unavailable on this server')
         if shutil.disk_usage('/var').free < 900*1024*1024:
@@ -450,7 +458,7 @@ def verify_blender_optimiser(release):
                 # Python package names from a model file are ever executed.
                 known={'numpy':'python3-numpy','PIL':'python3-pil','yaml':'python3-yaml'}
                 package=known.get(missing.split('.')[0])
-                if package and shutil.which('apt-get'):
+                if package and _allow_system_apt() and shutil.which('apt-get'):
                     apt_env={**os.environ,'DEBIAN_FRONTEND':'noninteractive'}
                     print('BLENDER: repairing missing dependency '+missing,flush=True)
                     run(['apt-get','-o','DPkg::Lock::Timeout=45','install','--no-install-recommends','-y',package],
