@@ -34,9 +34,10 @@ class DracoDeploymentSafetyTest(unittest.TestCase):
                  patch.object(install,'ensure_scoped_node',return_value=('/opt/umi/node','/opt/umi/npm')),\
                  patch.object(install,'run',return_value=error) as calls:
                 self.assertFalse(install.prepare_gltf_transform())
-            self.assertEqual(calls.call_count,2)
+            self.assertEqual(sum(1 for c in calls.call_args_list if 'install' in c.args[0]),3)
             for call in calls.call_args_list:
-                self.assertIn('@gltf-transform/cli@4.5.0',call.args[0])
+                if 'install' in call.args[0]:
+                    self.assertIn('@gltf-transform/cli@4.5.0',call.args[0])
 
     def test_failed_draco_does_not_restart_old_site_during_preflight(self):
         with tempfile.TemporaryDirectory() as temp:

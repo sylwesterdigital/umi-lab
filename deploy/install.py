@@ -153,6 +153,8 @@ Environment=UMI_DATA_DIR={DATA}
 Environment=UMI_HTTPS=1
 Environment=PYTHONUNBUFFERED=1
 Environment=UMI_ENABLE_BLENDER=1
+Environment=HOME=/var/lib/umi-lab
+Environment=XDG_CACHE_HOME=/var/lib/umi-lab/.cache
 Environment=PATH=/opt/umi-lab/tools/node-current/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart={BASE}/current/.venv/bin/gunicorn --workers 1 --threads 4 --timeout 220 --bind 127.0.0.1:{port} backend.wsgi:app
 Restart=on-failure
@@ -217,8 +219,11 @@ def _node_runtime_env(node):
     return {**os.environ,'PATH':str(Path(node).parent)+os.pathsep+
             str(BASE/'tools'/'node-current'/'bin')+os.pathsep+
             os.environ.get('PATH','/usr/bin:/bin'),
+            'HOME':str(DATA),'XDG_CACHE_HOME':str(DATA/'.cache'),
+            'npm_config_cache':str(BASE/'tools'/'npm-cache'),
+            'npm_config_userconfig':'/dev/null',
             'npm_config_update_notifier':'false','npm_config_audit':'false',
-            'npm_config_fund':'false'}
+            'npm_config_fund':'false','npm_config_fetch_timeout':'35000'}
 
 
 def ensure_scoped_node():
@@ -293,10 +298,11 @@ def ensure_scoped_node():
 
 
 def prepare_gltf_transform():
-    """Provision a scoped CLI and expose exact npm errors without blocking the site.
+    """Install the real Draco/Meshopt encoder in UMI-owned directories.
 
-    Codec dependencies are optional: a failure must never take an existing
-    UMI service offline. The UI can accurately disable unavailable encoders.
+    npm formerly ran as root with root HOME/cache, then the service ran as
+    umi-lab. Rebuild in a writable, isolated workspace *as the service user*,
+    and verify execution as that user. Do not touch global npm or other apps.
     """
     destination=BASE/'tools'/'gltf-transform'
     existing=destination/'node_modules'/'.bin'/'gltf-transform'
@@ -304,35 +310,50 @@ def prepare_gltf_transform():
         node,npm=ensure_scoped_node()
         env=_node_runtime_env(node)
         if existing.is_file() and _service_command_works([existing,'--version'],env):
-            print('GLTF: existing encoder executable verified as umi-lab',flush=True)
+            print('GLTF: existing service-accessible encoder verified',flush=True)
             return True
         destination.mkdir(parents=True,exist_ok=True)
-        # First attempt is the normal scoped package install. If the registry
-        # briefly times out, retry with a fresh npm cache and the official
-        # registry explicitly specified. Do not modify other projects' npm.
-        last_error=''
-        attempts=[['--prefer-offline','--fetch-retries=2'],
-                  ['--prefer-online','--fetch-retries=1','--registry=https://registry.npmjs.org/']]
-        for i,flags in enumerate(attempts,1):
+        cache=BASE/'tools'/'npm-cache'
+        cache.mkdir(parents=True,exist_ok=True)
+        # Ownership is limited to the UMI-specific tool directory and cache.
+        # This also repairs older root-owned partial npm installs.
+        if os.geteuid()==0:
+            for folder in (destination,cache):
+                run(['chown','-R','umi-lab:umi-lab',str(folder)],timeout=45)
+        last_error='not attempted'
+        attempts=[
+            # Run npm under the same identity that executes the encoder later.
+            ('service', ['--prefer-online','--fetch-retries=1','--registry=https://registry.npmjs.org/']),
+            ('service-retry', ['--prefer-offline','--fetch-retries=1']),
+            # Some restricted hosts allow root network/proxy access only. In
+            # that case install ONLY under /opt/umi-lab and then repair owner.
+            ('root-fallback', ['--prefer-online','--fetch-retries=1','--registry=https://registry.npmjs.org/']),
+        ]
+        for label,flags in attempts:
             args=[npm,'--prefix',str(destination),'install','--no-save',
-                  '--no-audit','--no-fund','--no-progress',*flags,
-                  '@gltf-transform/cli@4.5.0']
+                  '--no-audit','--no-fund','--no-progress','--no-package-lock',
+                  '--fetch-timeout=35000',*flags,'@gltf-transform/cli@4.5.0']
+            command=(['runuser','-u','umi-lab','--',*args]
+                     if os.geteuid()==0 and label!='root-fallback' else args)
             try:
-                result=run(args,timeout=150,check=False,env=env)
-                if result.returncode==0 and existing.is_file() and _service_command_works([existing,'--version'],env):
-                    print('GLTF: Draco/Meshopt CLI installed and verified as umi-lab',flush=True)
+                result=run(command,timeout=125,check=False,env=env)
+                if os.geteuid()==0 and label=='root-fallback':
+                    run(['chown','-R','umi-lab:umi-lab',str(destination)],timeout=45)
+                if (result.returncode==0 and existing.is_file() and
+                    _service_command_works([existing,'--version'],env)):
+                    print('GLTF: Draco/Meshopt encoder usable by umi-lab ('+label+')',flush=True)
                     return True
-                detail=(result.stderr or result.stdout or 'npm returned no diagnostics')
-                last_error='exit '+str(result.returncode)+': '+detail.strip()[-650:]
-                if result.returncode==0 and existing.is_file():
-                    last_error='CLI installed, but umi-lab cannot execute it (Node PATH or permissions)'
+                detail=(result.stderr or result.stdout or 'npm produced no diagnostics').strip()
+                last_error=f'{label} exit {result.returncode}: '+detail[-850:]
+                if result.returncode==0:
+                    last_error=label+': npm completed but umi-lab cannot run the encoder'
             except subprocess.TimeoutExpired:
-                last_error='npm install exceeded 150s (network or registry timeout)'
-            print(f'GLTF: scoped npm attempt {i} failed: {last_error}',flush=True)
-        print('GLTF WARNING: fallback encoder unavailable; native Blender and WebP remain usable. '+last_error,flush=True)
+                last_error=label+': npm install timed out (network/registry issue)'
+            print('GLTF: install attempt failed: '+last_error,flush=True)
+        print('GLTF WARNING: encoder unavailable. '+last_error,flush=True)
         return False
     except (OSError,subprocess.TimeoutExpired,InstallError,ValueError) as error:
-        print('GLTF WARNING: scoped Node/npm unavailable: '+str(error)[:450],flush=True)
+        print('GLTF WARNING: scoped encoder cannot be provisioned: '+str(error)[:700],flush=True)
         return False
 
 def _blender_sample_glb():
@@ -745,13 +766,22 @@ def install(stage,version,token):
         prepare_draco_decoder(release)
         seed_admin(release)
         installed=prepare_gltf_transform()
+        draco_backend='unavailable'
+        draco_problem=''
         try:
-            verify_draco_runtime(release)
+            draco_backend=verify_draco_runtime(release)
         except InstallError as codec_error:
-            # An optional codec must never make the entire website unavailable.
-            # The UI queries actual availability and disables only Draco.
-            print('DRACO WARNING: '+str(codec_error)[:900],flush=True)
-            print('DRACO: unavailable for this release; site and other codecs remain functional',flush=True)
+            # A missing optional codec must never take the website offline.
+            draco_problem=str(codec_error)[:900]
+            print('DRACO WARNING: '+draco_problem,flush=True)
+            print('DRACO: unavailable; previous website functionality preserved',flush=True)
+        # Readable by UMI gunicorn, useful to display a factual reason in UI.
+        try:
+            write_atomic(DATA/'codec-diagnostics.json',json.dumps({
+                'draco_backend':draco_backend,'reason':draco_problem,
+                'gltf_transform_installed':bool(installed),'version':version},indent=2)+'\n')
+        except OSError as codec_error:
+            print('DRACO: status persistence warning: '+str(codec_error)[:150],flush=True)
         write_atomic(UNIT,unit_source(port))
         link=BASE/'current';temp=BASE/'.next-current'
         temp.unlink(missing_ok=True);temp.symlink_to(release)

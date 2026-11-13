@@ -1,3 +1,10 @@
+## 0.2.26 — Draco encoder installation reliability
+
+- Provision glTF Transform under the `umi-lab` system account, using UMI-owned directories and an isolated npm cache.
+- Retry installation with a scoped root fallback if registry access is restricted to root, then hand files back to `umi-lab`.
+- Verify a genuinely Draco-compressed GLB and store precise, user-visible encoder failure diagnostics.
+- Preserve the current website, database, and original 3D models if optional Draco encoding remains unavailable.
+
 ## 0.2.25 — Self-hosted Draco GLB preview
 - Point model-viewer at UMI-managed same-origin Draco 1.5.6 decoder assets before the component loads.
 - Install and validate JS + WASM decoder assets under the new release before activation; keep previous live release active if decoder provision fails.

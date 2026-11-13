@@ -82,9 +82,17 @@ def blender_status():
                 'reason':'UMI Blender optimisation is not enabled in the active service'}
     probe=blender_draco_probe()
     native=probe['available']
+    # An installer-side encoder failure must be visible, not just a grey option.
+    diagnostic=''
+    if not native and not cli:
+        try:
+            info=json.loads((Path(os.environ.get('UMI_DATA_DIR','/var/lib/umi-lab'))/'codec-diagnostics.json').read_text())
+            diagnostic=str(info.get('reason',''))[:500]
+        except (OSError,ValueError,TypeError):pass
     return {**base,'installed':True,'enabled':True,'ready':True,
             'reason':'Blender executable found and optimisation enabled',
             'native_draco_reason':probe['reason'],
+            'draco_install_reason':diagnostic,
             'draco_native':native,'draco_available':native or cli,
             'draco_backend':'blender' if native else 'gltf-transform' if cli else None}
 
